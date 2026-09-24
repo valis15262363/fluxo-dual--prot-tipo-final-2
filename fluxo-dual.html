@@ -1,0 +1,2989 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0" />
+<meta name="theme-color" content="#0F766E" />
+<meta name="description" content="Fluxo Dual — Recepção Sem Fila. Check-in médico inteligente com rota autônoma ou ajuda humana imediata." />
+<title>Fluxo Dual — Recepção Sem Fila | Clínica Saúde+</title>
+
+<!-- ============================================================
+     TAILWIND CSS (CDN — uso exclusivo em protótipo/hackathon)
+     Em produção: substituir pelo build Tailwind CLI/PostCSS.
+     ============================================================ -->
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        colors: {
+          brand: {
+            50:'#F0FDFA',100:'#CCFBF1',200:'#99F6E4',300:'#5EEAD4',
+            400:'#2DD4BF',500:'#14B8A6',600:'#0D9488',700:'#0F766E',
+            800:'#115E59',900:'#134E4A'
+          }
+        },
+        fontFamily: {
+          sans: ['Inter','system-ui','-apple-system','Segoe UI','Roboto','sans-serif']
+        },
+        keyframes: {
+          popIn: { '0%':{opacity:'0',transform:'scale(.96) translateY(8px)'}, '100%':{opacity:'1',transform:'scale(1) translateY(0)'} },
+          fadeIn: { '0%':{opacity:'0'}, '100%':{opacity:'1'} },
+          slideUp: { '0%':{opacity:'0',transform:'translateY(24px)'}, '100%':{opacity:'1',transform:'translateY(0)'} },
+          pulseRing: { '0%':{transform:'scale(.9)',opacity:'.75'}, '100%':{transform:'scale(1.9)',opacity:'0'} },
+          shimmer: { '100%':{ transform:'translateX(100%)' } }
+        },
+        animation: {
+          popIn: 'popIn .28s cubic-bezier(.16,1,.3,1) forwards',
+          fadeIn: 'fadeIn .25s ease-out forwards',
+          slideUp: 'slideUp .4s cubic-bezier(.16,1,3,1) forwards',
+          pulseRing: 'pulseRing 1.8s ease-out infinite'
+        }
+      }
+    }
+  };
+</script>
+
+<style>
+  /* Ajustes finos: esconder scrollbar do body, área de toque generosa,
+     suporte a usuários que preferem menos animação (acessibilidade). */
+  html { -webkit-text-size-adjust: 100%; }
+  body { overscroll-behavior-y: contain; }
+
+  /* GARANTIA DE EXIBIÇÃO: a regra [hidden] do navegador (UA stylesheet) é
+     sobrescrita por qualquer classe de autor com `display` (ex.: Tailwind .flex).
+     Sem este !important, todas as telas com .flex ficariam visíveis ao mesmo
+     tempo mesmo com o atributo `hidden` presente. */
+  [hidden] { display: none !important; }
+  .no-scrollbar::-webkit-scrollbar { display:none; }
+  .no-scrollbar { -ms-overflow-style:none; scrollbar-width:none; }
+
+  /* Ripple tátil sutil nos botões grandes (feedback para tela em pé) */
+  .btn-tactile { transition: transform .12s ease, box-shadow .18s ease, background-color .18s ease; }
+  .btn-tactile:active { transform: scale(.975); }
+
+  /* Barra de progresso indeterminada do OCR */
+  .ocr-bar::after {
+    content:''; position:absolute; inset:0;
+    background:linear-gradient(90deg, transparent, rgba(255,255,255,.85), transparent);
+    transform: translateX(-100%);
+    animation: shimmer 1.4s infinite;
+  }
+
+  /* --------------------------------------------------------------
+     ESCOLHA DO TIPO DE ATENDIMENTO (Tela 1): consulta x pronto-socorro.
+     O estado é exposto em `aria-pressed`, então o CSS abaixo é a ÚNICA
+     fonte de estilo do selecionado — nada de classes geradas em runtime
+     pelo CDN do Tailwind (que podem não existir quando o clique ocorre).
+     -------------------------------------------------------------- */
+  .tipo-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+    padding: 9px 6px;
+    border: 2px solid #cbd5e1;
+    border-radius: 14px;
+    background: #fff;
+    color: #334155;
+    font-size: 13px;
+    font-weight: 800;
+    line-height: 1.15;
+    text-align: center;
+    cursor: pointer;
+    transition: transform .12s ease, border-color .15s ease,
+                background-color .15s ease, box-shadow .15s ease;
+  }
+  .tipo-btn .tipo-emoji { font-size: 19px; line-height: 1; }
+  .tipo-btn:hover { background: #f8fafc; }
+  .tipo-btn:active { transform: scale(.97); }
+  .tipo-btn:focus-visible { outline: none; box-shadow: 0 0 0 4px #5EEAD4; }
+
+  .tipo-btn[aria-pressed="true"] {
+    border-color: #0F766E;
+    background: #0F766E;
+    color: #fff;
+    box-shadow: 0 10px 20px -8px rgba(15, 118, 110, .55);
+  }
+  .tipo-btn[aria-pressed="true"]:hover { background: #115E59; }
+
+  /* Pronto-socorro fica VERMELHO quando selecionado (urgência visual). */
+  #tipoPronto[aria-pressed="true"] {
+    border-color: #b91c1c;
+    background: #b91c1c;
+    box-shadow: 0 10px 20px -8px rgba(185, 28, 28, .55);
+  }
+  #tipoPronto[aria-pressed="true"]:hover { background: #991b1b; }
+
+  /* A Rota 1 muda de sentido em urgência: botão vermelho + modo triagem. */
+  #btnRota1[data-urgente="1"] {
+    background: #b91c1c;
+    border-color: #b91c1c;
+    box-shadow: 0 14px 28px -12px rgba(185, 28, 28, .7);
+  }
+  #btnRota1[data-urgente="1"]:hover { background: #991b1b; }
+
+  /* Chips da Tela 4: prioridade (alta/média/normal) e tipo de atendimento. */
+  #ticketChipWrap[data-prio="alta"] {
+    border-color: #fecaca;
+    background: #fef2f2;
+    color: #991b1b;
+  }
+  #ticketChipWrap[data-prio="alta"] .prio-dot { background: #ef4444; }
+  #ticketChipWrap[data-prio="media"] {
+    border-color: #fed7aa;
+    background: #fff7ed;
+    color: #9a3412;
+  }
+  #ticketChipWrap[data-prio="media"] .prio-dot { background: #f97316; }
+  /* 'normal' (consulta ou pronto leve) fica no padrão esmeralda. */
+  #tipoChip[data-tipo="pronto"] {
+    border-color: #fecaca;
+    background: #fef2f2;
+    color: #991b1b;
+  }
+
+  /* Chip do TEMPO MÉDIO DE ATENDIMENTO (Tela 4) — muda com a GRAVIDADE. */
+  #timeChip[data-prio="eletivo"]  { border-color: #99f6e4; background: #f0fdfa; color: #0f766e; }
+  #timeChip[data-prio="pendente"] { border-color: #e2e8f0; background: #f8fafc; color: #334155; }
+  #timeChip[data-prio="normal"]   { border-color: #bbf7d0; background: #f0fdf4; color: #166534; }
+  #timeChip[data-prio="media"]    { border-color: #fed7aa; background: #fff7ed; color: #9a3412; }
+  #timeChip[data-prio="alta"]     { border-color: #fecaca; background: #fef2f2; color: #991b1b; }
+
+  /* --------------------------------------------------------------
+     MODO TRIAGEM NA TELA 2 (pronto-socorro).
+     A Rota 1 leva à MESMA tela de identificação — mas em modo de
+     triagem: o usuário escolhe a GRAVIDADE do caso (leve/moderada/
+     crítica) e é ela que define a prioridade. Nada de marcar tudo
+     como ALTA: o padrão é "A DEFINIR" (cinza) até a escolha.
+     O estado vive em `data-*` nos 4 elementos, então nada de
+     classes Tailwind geradas em runtime.
+
+       eletivo   → consulta marcada (visual padrão brand)
+       pendente  → pronto-socorro ainda sem gravidade escolhida
+       normal    → gravidade leve      (verde)
+       media     → gravidade moderada  (laranja)
+       alta      → gravidade crítica   (vermelho)
+     -------------------------------------------------------------- */
+  #etapaBadge[data-prio="pendente"] { background: #e2e8f0; color: #334155; }
+  #etapaBadge[data-prio="normal"]   { background: #dcfce7; color: #166534; }
+  #etapaBadge[data-prio="media"]    { background: #ffedd5; color: #9a3412; }
+  #etapaBadge[data-prio="alta"]     { background: #fee2e2; color: #991b1b; }
+
+  #etapaBar[data-prio="pendente"] { background: #94a3b8; }
+  #etapaBar[data-prio="normal"]   { background: #16a34a; }
+  #etapaBar[data-prio="media"]    { background: #f97316; }
+  #etapaBar[data-prio="alta"]     { background: #dc2626; }
+
+  #scanArea[data-prio="pendente"] { border-color: #cbd5e1; background: #f8fafc; }
+  #scanArea[data-prio="normal"]   { border-color: #86efac; background: #f0fdf4; }
+  #scanArea[data-prio="media"]    { border-color: #fdba74; background: #fff7ed; }
+  #scanArea[data-prio="alta"]     { border-color: #fca5a5; background: #fef2f2; }
+  #scanArea[data-prio="pendente"] .mira span { border-color: #94a3b8; }
+  #scanArea[data-prio="normal"]   .mira span { border-color: #16a34a; }
+  #scanArea[data-prio="media"]    .mira span { border-color: #f97316; }
+  #scanArea[data-prio="alta"]     .mira span { border-color: #dc2626; }
+
+  /* CTA só fica colorido de verdade quando a gravidade foi escolhida —
+     antes disso permanece desabilitado em cinza (regra abaixo vence). */
+  #btnConfirmar[data-prio="media"] {
+    background: #c2410c;
+    box-shadow: 0 14px 28px -12px rgba(194, 65, 12, .7);
+  }
+  #btnConfirmar[data-prio="alta"] {
+    background: #b91c1c;
+    box-shadow: 0 14px 28px -12px rgba(185, 28, 28, .7);
+  }
+  #btnConfirmar[data-prio="normal"] {
+    background: #0f766e;
+    box-shadow: 0 14px 28px -12px rgba(15, 118, 110, .7);
+  }
+  #btnConfirmar[data-prio="media"]:not(:disabled):hover { background: #9a3412; }
+  #btnConfirmar[data-prio="alta"]:not(:disabled):hover  { background: #991b1b; }
+  #btnConfirmar[data-prio="normal"]:not(:disabled):hover { background: #115e59; }
+  /* Desabilitado: SEMPRE cinza, mesmo em urgência (senão parece ativo). */
+  #btnConfirmar[data-prio="media"]:disabled,
+  #btnConfirmar[data-prio="normal"]:disabled,
+  #btnConfirmar[data-prio="alta"]:disabled {
+    background: #cbd5e1;
+    box-shadow: none;
+  }
+
+  /* --------------------------------------------------------------
+     CARTÃO DE TRIAGEM DE GRAVIDADE (só aparece no modo pronto)
+     Três botões grandes, lado a lado, no padrão tátil do app.
+     -------------------------------------------------------------- */
+  .grav-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    text-align: left;
+    padding: 9px 10px;
+    border: 2px solid #e2e8f0;
+    border-radius: 16px;
+    background: #f8fafc;
+    cursor: pointer;
+    transition: border-color .15s, background .15s, transform .15s;
+  }
+  .grav-btn:hover { border-color: #94a3b8; }
+  .grav-btn:active { transform: scale(.98); }
+  .grav-btn .grav-emoji { font-size: 20px; line-height: 1; }
+  .grav-btn .grav-rot {
+    display: block;
+    font-size: 14.5px;
+    font-weight: 800;
+    color: #0f172a;
+  }
+  .grav-btn .grav-ex {
+    display: block;
+    font-size: 11.5px;
+    line-height: 1.3;
+    color: #64748b;
+  }
+  /* Coluna da direita: badge de PRIORIDADE + TEMPO MÉDIO de atendimento.
+     O paciente enxerga o custo da escolha ANTES de tocar. */
+  .grav-btn .grav-lado {
+    margin-left: auto;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 5px;
+  }
+  .grav-btn .grav-prio {
+    flex-shrink: 0;
+    font-size: 10px;
+    font-weight: 900;
+    letter-spacing: .04em;
+    padding: 3px 7px;
+    border-radius: 999px;
+    background: #e2e8f0;
+    color: #475569;
+    white-space: nowrap;
+  }
+  /* Tempo médio de ATENDIMENTO por gravidade — nada de número fixo:
+       leve ~5 min · moderada ~3 min · crítica < 1 min (fila de prioridade). */
+  .grav-btn .grav-tempo {
+    font-size: 11px;
+    font-weight: 800;
+    line-height: 1.3;
+    padding: 2px 7px;
+    border-radius: 999px;
+    border: 1px solid #99f6e4;
+    background: #f0fdfa;
+    color: #0f766e;
+    white-space: nowrap;
+  }
+  /* Selecionada — a cor já avisa qual prioridade vai sair. */
+  .grav-btn[data-g="leve"][aria-pressed="true"] {
+    border-color: #16a34a;
+    background: #f0fdf4;
+  }
+  .grav-btn[data-g="leve"][aria-pressed="true"] .grav-prio {
+    background: #16a34a;
+    color: #fff;
+  }
+  .grav-btn[data-g="leve"][aria-pressed="true"] .grav-tempo {
+    background: #16a34a;
+    border-color: #16a34a;
+    color: #fff;
+  }
+  .grav-btn[data-g="moderada"][aria-pressed="true"] {
+    border-color: #f97316;
+    background: #fff7ed;
+  }
+  .grav-btn[data-g="moderada"][aria-pressed="true"] .grav-prio {
+    background: #f97316;
+    color: #fff;
+  }
+  .grav-btn[data-g="moderada"][aria-pressed="true"] .grav-tempo {
+    background: #f97316;
+    border-color: #f97316;
+    color: #fff;
+  }
+  .grav-btn[data-g="critica"][aria-pressed="true"] {
+    border-color: #dc2626;
+    background: #fef2f2;
+  }
+  .grav-btn[data-g="critica"][aria-pressed="true"] .grav-prio {
+    background: #dc2626;
+    color: #fff;
+  }
+  .grav-btn[data-g="critica"][aria-pressed="true"] .grav-tempo {
+    background: #dc2626;
+    border-color: #dc2626;
+    color: #fff;
+  }
+
+  /* --------------------------------------------------------------
+     TELA DE ESPERA DO ATENDENTE (overlay "chamar atendente").
+     Não é um loader mudo: é uma SALA DE ESPERA — timeline de 3
+     passos, contador de tempo parado e posição na fila. O usuário
+     ENXERGA que alguém está vindo, em vez de ficar no escuro.
+     O estado de cada passo vive em `data-step` (nada de classes
+     Tailwind geradas em runtime).
+       pending → aguardando · active → em andamento · done → concluído
+     -------------------------------------------------------------- */
+  .wait-step { display: flex; align-items: flex-start; gap: 12px; text-align: left; }
+  .wait-dot {
+    flex-shrink: 0;
+    display: grid; place-items: center;
+    width: 27px; height: 27px;
+    border: 2px solid rgba(255, 255, 255, .35);
+    border-radius: 999px;
+    background: rgba(255, 255, 255, .10);
+    color: #94a3b8;
+    font-size: 13px; font-weight: 900; line-height: 1;
+    transition: background .2s, border-color .2s, color .2s;
+  }
+  .wait-rot {
+    display: block;
+    font-size: 14.5px; font-weight: 800; line-height: 1.3;
+    color: #94a3b8;
+    transition: color .2s;
+  }
+  .wait-sub {
+    display: block;
+    font-size: 12px; line-height: 1.35; margin-top: 2px;
+    color: #64748b;
+    transition: color .2s;
+  }
+
+  .wait-step[data-step="active"] .wait-dot {
+    background: #fbbf24; border-color: #fbbf24; color: #78350f;
+    animation: waitBlink 1.05s ease-in-out infinite;
+  }
+  .wait-step[data-step="active"] .wait-rot { color: #fde68a; }
+  .wait-step[data-step="active"] .wait-sub { color: #fcd34d; }
+
+  .wait-step[data-step="done"] .wait-dot {
+    background: #34d399; border-color: #34d399; color: #064e3b;
+    animation: none;
+  }
+  .wait-step[data-step="done"] .wait-rot { color: #ffffff; }
+  .wait-step[data-step="done"] .wait-sub { color: #99f6e4; }
+
+  @keyframes waitBlink { 0%, 100% { opacity: 1; } 50% { opacity: .4; } }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: .01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: .01ms !important;
+    }
+  }
+</style>
+</head>
+
+<body class="bg-slate-100 font-sans text-slate-900 antialiased">
+
+<!-- ============================================================
+     ESTRUTURA DA SPA
+     #app é o container único. As 4 telas são <section> filhas,
+     exibidas/ocultadas pela função goTo(estado).
+     Estados: 'inicio' | 'checkin' | 'suporte'
+     (o modal de inércia é um sobreposição transiente — 3º estado do fluxo)
+     ============================================================ -->
+<main id="app" class="relative mx-auto flex min-h-[100dvh] w-full max-w-md flex-col bg-white shadow-2xl sm:my-6 sm:min-h-[calc(100dvh-3rem)] sm:rounded-3xl sm:overflow-hidden">
+
+  <!-- ===================== HEADER PERSISTENTE ===================== -->
+  <header class="sticky top-0 z-30 flex items-center justify-between gap-2 bg-brand-700 px-4 py-4 text-white shadow-md sm:px-5">
+    <div class="flex min-w-0 items-center gap-3">
+      <div class="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-white/15 text-lg font-black" aria-hidden="true">➕</div>
+      <div class="min-w-0 leading-tight">
+        <p class="truncate text-[15px] font-extrabold tracking-tight">Clínica Saúde+</p>
+        <p class="truncate text-[11px] font-medium text-brand-100">Recepção Sem Fila</p>
+      </div>
+    </div>
+
+    <div class="flex shrink-0 items-center gap-2">
+      <!-- Indicador de status do fluxo: acessível via aria-live -->
+      <div class="flex items-center gap-2 rounded-full bg-black/20 px-2.5 py-1.5">
+        <span id="statusDot" class="relative flex h-2.5 w-2.5">
+          <span class="absolute inline-flex h-full w-full rounded-full bg-emerald-300 opacity-75 animate-pulseRing"></span>
+          <span class="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-400"></span>
+        </span>
+        <span id="statusText" class="hidden text-[11px] font-semibold text-brand-50 min-[400px]:inline" aria-live="polite">Aguardando você</span>
+      </div>
+
+      <!-- ABERTOR GLOBAL DO CHAT COM IA (disponível em qualquer tela) -->
+      <button id="btnOpenChat" type="button"
+              aria-label="Abrir chat de ajuda com inteligência artificial"
+              title="Chat de ajuda com IA"
+              class="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-white/15 text-lg transition hover:bg-white/25 focus:outline-none focus-visible:ring-4 focus-visible:ring-white/50 active:scale-95">
+        🤖
+      </button>
+    </div>
+  </header>
+
+  <!-- ============================================================
+       ESTADO 1 — TELA INICIAL (A DUPLA ROTA)
+       ============================================================ -->
+  <section id="screen-inicio" data-screen="inicio"
+           class="flex flex-1 flex-col justify-center px-6 py-7 text-center"
+           aria-labelledby="titulo-inicio">
+
+    <div class="mb-1 text-4xl" aria-hidden="true">🏥</div>
+
+    <h1 id="titulo-inicio" class="text-[26px] font-extrabold leading-snug tracking-tight text-slate-900">
+      Bem-vindo à Clínica Saúde+.<br class="hidden sm:block" />
+      Como podemos te ajudar hoje?
+    </h1>
+
+    <p class="mx-auto mt-2 max-w-xs text-[15px] leading-relaxed text-slate-600">
+      Escolha como prefere fazer seu check-in. Sem fila, no seu tempo.
+    </p>
+
+    <!-- ===== ESCOLHA DO TIPO DE ATENDIMENTO ===== -->
+    <!-- consulta médica (eletivo) x pronto-socorro (urgência).
+         Decide a PRIORIDADE do chamado e o comportamento da Rota 1. -->
+    <div role="group" aria-labelledby="lblTipo"
+         class="mx-auto mt-4 w-full max-w-sm rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2.5">
+      <p id="lblTipo" class="mb-1.5 text-center text-[11.5px] font-black uppercase tracking-wider text-slate-500">
+        Qual é o seu atendimento hoje?
+      </p>
+
+      <div class="grid grid-cols-2 gap-2">
+        <button id="tipoConsulta" type="button" aria-pressed="true" class="tipo-btn">
+          <span class="tipo-emoji" aria-hidden="true">🩺</span>
+          <span>Consulta médica</span>
+        </button>
+        <button id="tipoPronto" type="button" aria-pressed="false" class="tipo-btn">
+          <span class="tipo-emoji" aria-hidden="true">🚑</span>
+          <span>Pronto-socorro</span>
+        </button>
+      </div>
+
+      <p id="tipoHint" class="mt-1.5 text-center text-[11px] leading-snug text-slate-500">
+        Atendimento com hora marcada · prioridade normal.
+      </p>
+
+      <!-- Aviso de urgência — usa ATRIBUTO hidden (é o que setTipo() altera). -->
+      <div id="tipoUrgente" hidden
+           class="mt-2 rounded-xl border-2 border-red-300 bg-red-50 px-3 py-2 text-left">
+        <p class="text-[12.5px] font-extrabold leading-snug text-red-700">
+          ⚠️ A prioridade sai da triagem de gravidade
+        </p>
+        <p class="mt-0.5 text-[11.5px] leading-snug text-red-600">
+          Identifique-se e digite o <strong>nome</strong> e anexe <strong>foto ou PDF</strong>.
+          Você indica se o caso é leve, moderado ou crítico — <strong>a fila responde conforme o caso</strong>.
+        </p>
+      </div>
+    </div>
+
+    <!-- ROTA 1 — Autônoma (check-in rápido) -->
+    <div class="mt-5 space-y-3">
+      <button id="btnRota1"
+              class="btn-tactile w-full rounded-3xl bg-brand-700 px-6 py-5 text-left shadow-lg shadow-brand-700/30 hover:bg-brand-800 focus:outline-none focus-visible:ring-4 focus-visible:ring-brand-400 focus-visible:ring-offset-2"
+              aria-describedby="descRota1">
+        <span class="flex items-center gap-4">
+          <span id="rota1Icon" class="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-white/15 text-3xl" aria-hidden="true">🚀</span>
+          <span class="flex-1">
+            <span id="rota1Label" class="block text-xl font-extrabold text-white">Fazer sozinho (Rápido)</span>
+            <span id="descRota1" class="mt-0.5 block text-[13px] font-medium text-brand-100">
+              Escaneie seu documento e finalize em segundos.
+            </span>
+          </span>
+          <span class="text-2xl text-white/70" aria-hidden="true">→</span>
+        </span>
+      </button>
+
+      <!-- ROTA 2 — Humana (recepção imediata) -->
+      <button id="btnRota2"
+              class="btn-tactile w-full rounded-3xl border-2 border-brand-700 bg-white px-6 py-5 text-left shadow-sm hover:bg-brand-50 focus:outline-none focus-visible:ring-4 focus-visible:ring-brand-400 focus-visible:ring-offset-2"
+              aria-describedby="descRota2">
+        <span class="flex items-center gap-4">
+          <span class="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-brand-100 text-3xl" aria-hidden="true">🙋‍♀️</span>
+          <span class="flex-1">
+            <span class="block text-xl font-extrabold text-brand-800">Quero ajuda da recepção</span>
+            <span id="descRota2" class="mt-0.5 block text-[13px] font-medium text-slate-600">
+              Um atendente virá até você agora mesmo.
+            </span>
+          </span>
+          <span class="text-2xl text-brand-700" aria-hidden="true">→</span>
+        </span>
+      </button>
+    </div>
+
+    <!-- Atalho para o chat com IA já na tela inicial -->
+    <button id="btnIaLink"
+            class="btn-tactile mx-auto mt-4 flex items-center gap-2 rounded-full border border-slate-200 bg-white px-5 py-3 text-[14px] font-bold text-slate-700 shadow-sm hover:bg-slate-50 focus:outline-none focus-visible:ring-4 focus-visible:ring-brand-400">
+      🤖 Tirar dúvida com nosso chat
+    </button>
+
+    <p class="mt-4 text-[12px] leading-relaxed text-slate-500">
+      Prefere falar? Ligue para a recepção: <strong class="text-slate-700">(11) 4000-0000</strong>
+    </p>
+  </section>
+
+  <!-- ============================================================
+       ESTADO 2 — TELA DE CHECK-IN RÁPIDO (ROTA 1)
+       Passo único de identificação + OCR simulado.
+       ============================================================ -->
+  <section id="screen-checkin" data-screen="checkin" hidden
+           class="flex flex-1 flex-col px-6 py-7" aria-labelledby="titulo-checkin">
+
+    <!-- Barra de progresso do fluxo -->
+    <div class="mb-5">
+      <div class="flex items-center justify-between text-[12px] font-bold text-slate-500">
+        <span id="etapaLabel">ETAPA 1 DE 1 · IDENTIFICAÇÃO</span>
+        <span id="etapaBadge" data-prio="normal"
+              class="rounded-full bg-brand-100 px-2 py-0.5 text-brand-800">ÚLTIMO PASSO</span>
+      </div>
+      <div class="mt-2 h-2 w-full overflow-hidden rounded-full bg-slate-200">
+        <div id="etapaBar" data-urgente="0" class="h-full w-full rounded-full bg-brand-600"></div>
+      </div>
+    </div>
+
+    <h2 id="titulo-checkin" class="text-[23px] font-extrabold leading-snug tracking-tight text-slate-900">
+      Escaneie seu documento
+    </h2>
+    <!-- O parágrafo troca de texto quando o modo é PRONTO-SOCORRO (innerHTML do JS). -->
+    <p id="subCheckin" class="mt-2 text-[15px] leading-relaxed text-slate-600">
+      Aponte a câmera para o <strong>cartão do convénio</strong> ou documento com foto.
+      Nós lemos os dados automaticamente.
+    </p>
+
+    <!-- ===== TRIAGEM DE GRAVIDADE (só no modo pronto-socorro) =====
+         A prioridade NÃO é automática: o próprio usuário (ou quem o
+         ajuda) diz como está o caso. É essa escolha que colore o
+         badge/barra/moldura/CTA e o chip da Tela 4.
+         Usa ATRIBUTO hidden (trocado por aplicarModoTela2()). -->
+    <div id="gravCard" hidden
+         class="mt-4 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+      <p class="text-[11px] font-black uppercase tracking-wider text-slate-400">
+        1 · Triagem de gravidade
+      </p>
+      <p class="mt-1 text-[13px] leading-snug text-slate-600">
+        Como está o quadro <strong>agora</strong>? A prioridade da fila e o
+        <strong>tempo médio de atendimento</strong> (à direita) dependem desta escolha.
+      </p>
+
+      <div class="mt-3 grid gap-2" role="group" aria-label="Gravidade do caso">
+        <button type="button" class="grav-btn" data-g="leve" id="gravLeve" aria-pressed="false"
+                title="Prioridade normal · tempo médio de atendimento ~5 min">
+          <span class="grav-emoji" aria-hidden="true">🟢</span>
+          <span>
+            <span class="grav-rot">Leve</span>
+            <span class="grav-ex">Dor passageira, receita ou exame de rotina</span>
+          </span>
+          <span class="grav-lado">
+            <span class="grav-prio">NORMAL</span>
+            <span class="grav-tempo" title="Tempo médio de atendimento">⏱ ~5 min</span>
+          </span>
+        </button>
+
+        <button type="button" class="grav-btn" data-g="moderada" id="gravModerada" aria-pressed="false"
+                title="Prioridade média · tempo médio de atendimento ~3 min">
+          <span class="grav-emoji" aria-hidden="true">🟠</span>
+          <span>
+            <span class="grav-rot">Moderada</span>
+            <span class="grav-ex">Dor constante, febre ou tontura</span>
+          </span>
+          <span class="grav-lado">
+            <span class="grav-prio">MÉDIA</span>
+            <span class="grav-tempo" title="Tempo médio de atendimento">⏱ ~3 min</span>
+          </span>
+        </button>
+
+        <button type="button" class="grav-btn" data-g="critica" id="gravCritica" aria-pressed="false"
+                title="Prioridade alta · tempo médio de atendimento imediato (&lt; 1 min)">
+          <span class="grav-emoji" aria-hidden="true">🔴</span>
+          <span>
+            <span class="grav-rot">Crítica</span>
+            <span class="grav-ex">Falta de ar, dor no peito ou sangramento</span>
+          </span>
+          <span class="grav-lado">
+            <span class="grav-prio">ALTA</span>
+            <span class="grav-tempo" title="Tempo médio de atendimento">⏱ &lt; 1 min</span>
+          </span>
+        </button>
+      </div>
+
+      <!-- Segurança: crítica → lembrete do SAMU. Usa ATRIBUTO hidden. -->
+      <div id="gravSamu" hidden
+           class="mt-3 rounded-xl border-2 border-red-300 bg-red-50 px-3 py-2 text-left">
+        <p class="text-[12.5px] font-extrabold leading-snug text-red-700">
+          Risco imediato? Ligue <strong>192 (SAMU)</strong>
+        </p>
+        <p class="mt-0.5 text-[11.5px] leading-snug text-red-600">
+          Não espere a senha — acione o SAMU agora.
+        </p>
+      </div>
+    </div>
+
+    <!-- ===== ÁREA DE CAPTURA (simulada) ===== -->
+    <div class="mt-6">
+      <div id="scanArea"
+           class="relative flex min-h-[190px] w-full flex-col items-center justify-center overflow-hidden rounded-3xl border-2 border-dashed border-brand-400 bg-brand-50 p-6 text-center transition-all">
+
+        <!-- Pré-visualização REAL da foto capturada (câmera traseira ou galeria).
+             Em produção aqui entraria o frame do getUserMedia/canvas. -->
+        <img id="scanPreview" alt="Pré-visualização do documento capturado"
+             class="absolute inset-0 h-full w-full object-cover opacity-30" hidden />
+
+        <!-- INPUT DE CAPTURA REAL (nativo do SO)
+             capture="environment" → abre a CÂMERA TRASEIRA no mobile.
+             No desktop, cai na caixa de diálogo de escolha de arquivo.
+             É o caminho de baixa fricção recomendado para idosos:
+             zero permissão de "câmera do navegador" (getUserMedia). -->
+        <input id="fileInput" type="file" accept="image/*" capture="environment"
+               class="sr-only" aria-hidden="true" tabindex="-1" />
+
+        <!-- INPUT DE ANEXO DE PDF (nativo do SO)
+             Segundo caminho de identificação: quem já tem o documento digitalizado
+             (assinado/escaneado) anexa o ARQUIVO .pdf em vez de fotografar.
+             Mesmo padrão de baixa fricção: zero permissão de câmera. -->
+        <input id="pdfInput" type="file" accept="application/pdf,.pdf"
+               class="sr-only" aria-hidden="true" tabindex="-1" />
+
+        <!-- Chip com o nome do arquivo PDF anexado (visível durante leitura e após).
+             Usa ATRIBUTO hidden — é o que resetScanUI() altera. -->
+        <div id="docChip" hidden
+             class="absolute left-1/2 top-2 z-20 inline-flex max-w-[85%] -translate-x-1/2 items-center gap-1.5 rounded-full border border-brand-200 bg-white/95 px-3 py-1.5 shadow-sm">
+          <span class="text-[13px]" aria-hidden="true">📄</span>
+          <span id="docChipNome" class="truncate text-[11px] font-bold text-brand-800">documento.pdf</span>
+        </div>
+
+        <!-- Cantos de mira da câmera (classe .mira = pintados pelo data-prio) -->
+        <div class="mira pointer-events-none absolute inset-4 rounded-2xl border-2 border-brand-300/70" aria-hidden="true">
+          <span class="absolute -left-0.5 -top-0.5 h-6 w-6 rounded-l-lg border-l-4 border-t-4 border-brand-600"></span>
+          <span class="absolute -right-0.5 -top-0.5 h-6 w-6 rounded-r-lg border-r-4 border-t-4 border-brand-600"></span>
+          <span class="absolute -bottom-0.5 -left-0.5 h-6 w-6 rounded-bl-lg border-b-4 border-l-4 border-brand-600"></span>
+          <span class="absolute -bottom-0.5 -right-0.5 h-6 w-6 rounded-br-lg border-b-4 border-r-4 border-brand-600"></span>
+        </div>
+
+        <!-- Estado ocioso do scanner -->
+        <div id="scanIdle" class="relative z-10">
+          <div class="mx-auto mb-3 grid h-14 w-14 place-items-center rounded-2xl bg-white text-3xl shadow-sm" aria-hidden="true">🪪</div>
+          <p class="text-[13px] font-semibold text-brand-800">Nenhum documento capturado</p>
+          <p class="text-[12px] text-slate-500">Aceitamos RG, CNH, carteirinha — ou <strong>PDF</strong> do documento</p>
+        </div>
+
+        <!-- Estado de carregamento do OCR (2s) -->
+        <div id="scanLoading" class="relative z-10 w-full" hidden>
+          <div class="mx-auto mb-3 grid h-14 w-14 place-items-center">
+            <!-- Spinner acessível -->
+            <svg class="h-10 w-10 animate-spin text-brand-700" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+              <path class="opacity-90" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
+            </svg>
+          </div>
+          <p id="scanLoadingTitle" class="text-[15px] font-extrabold text-brand-900" aria-live="assertive">Lendo documento via OCR…</p>
+          <p id="scanLoadingSub" class="mb-3 text-[12px] text-slate-600">Extraindo nome, convênio e horário da consulta</p>
+          <div class="ocr-bar relative mx-auto h-2.5 w-56 overflow-hidden rounded-full bg-brand-200"></div>
+        </div>
+
+        <!-- Estado de sucesso: documento capturado -->
+        <div id="scanDone" class="relative z-10 w-full text-left" hidden>
+          <div class="flex items-center gap-3">
+            <div class="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-emerald-600 text-xl text-white" aria-hidden="true">✓</div>
+            <div>
+              <p id="scanDoneTitle" class="text-[14px] font-extrabold text-emerald-800">Documento lido com sucesso</p>
+              <p class="text-[12px] text-slate-600">Confira os dados abaixo</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Botão PRINCIPAL — segue a spec: clique → loader 2s → autofill -->
+      <button id="btnScan"
+              class="btn-tactile mt-4 w-full rounded-2xl border-2 border-brand-700 bg-white px-5 py-4 text-[17px] font-extrabold text-brand-800 shadow-sm hover:bg-brand-50 focus:outline-none focus-visible:ring-4 focus-visible:ring-brand-400 focus-visible:ring-offset-2">
+        <span aria-hidden="true">📷</span> Escanear documento
+      </button>
+
+      <!-- Botão SECUNDÁRIO — captura REAL pela câmera/galeria do aparelho.
+           Mantido separado do CTA principal para não quebrar o fluxo
+           "clique → 2s de OCR → autofill" exigido pela especificação. -->
+      <button id="btnCapture"
+              class="btn-tactile mt-2 w-full rounded-2xl bg-transparent px-5 py-3 text-[14px] font-bold text-brand-700 hover:bg-brand-50 focus:outline-none focus-visible:ring-4 focus-visible:ring-brand-400">
+        📸 Usar foto real da câmera <span class="font-medium text-slate-400">(opcional)</span>
+      </button>
+
+      <!-- 3º caminho: anexar o ARQUIVO PDF já digitalizado do documento
+           (assinatura/escaneamento salvo em PDF) — dispensa câmera. -->
+      <button id="btnPdf"
+              class="btn-tactile mt-2 w-full rounded-2xl bg-transparent px-5 py-3 text-[14px] font-bold text-brand-700 hover:bg-brand-50 focus:outline-none focus-visible:ring-4 focus-visible:ring-brand-400">
+        📄 Anexar PDF do documento <span class="font-medium text-slate-400">(até 15 MB)</span>
+      </button>
+    </div>
+
+    <!-- ===== CAMPOS PREENCHIDOS PELO OCR ===== -->
+    <!-- data-filled="false" enquanto não escaneado: serve de guarda de validação -->
+    <div id="formResult"
+         class="mt-6 space-y-3 rounded-3xl border border-slate-200 bg-slate-50 p-5 transition-all"
+         data-filled="false" aria-live="polite">
+
+      <p class="text-[11px] font-black uppercase tracking-wider text-slate-400">Dados identificados</p>
+
+      <div class="rounded-2xl bg-white p-4 shadow-sm">
+        <label for="fNome" class="mb-1 block text-[11px] font-bold uppercase tracking-wide text-slate-500">Nome completo</label>
+        <!-- Campo SEMPRE editável: o OCR só sugere o valor — o usuário pode (e deve)
+             digitar manualmente se preferir. Sem `readonly`, com autocomplete do SO. -->
+        <input id="fNome" type="text" value="" placeholder="Digite seu nome completo"
+               autocomplete="name" autocapitalize="words" spellcheck="false"
+               aria-describedby="dicaFNome"
+               class="w-full bg-transparent text-[17px] font-bold text-slate-900 outline-none placeholder:font-medium placeholder:text-slate-400" />
+        <p id="dicaFNome" class="mt-1 text-[11px] leading-snug text-slate-400">
+          Pode digitar direto aqui — ou escanear/anexar o documento para preencher sozinho.
+        </p>
+      </div>
+
+      <div class="grid grid-cols-1 gap-3 sm:grid-cols-1">
+        <!-- PLANO DE SAÚDE — campo de ESCOLHA, não apenas leitura.
+             O OCR preenche automaticamente; o usuário pode corrigir.
+             No celular o <select> nativo abre como bottom sheet (ótimos
+             alvos de toque para idosos, sem depender de dropdown custom). -->
+        <div class="rounded-2xl bg-white p-4 shadow-sm">
+          <label for="fPlano" class="mb-1 block text-[11px] font-bold uppercase tracking-wide text-slate-500">Qual é o seu plano de saúde?</label>
+          <div class="relative">
+            <select id="fPlano"
+                    class="w-full appearance-none rounded-lg bg-transparent py-1 pr-8 text-[17px] font-bold text-slate-900 outline-none focus:ring-0">
+              <option value="">Selecione seu plano…</option>
+              <option>Saúde Total</option>
+              <option>Unimed</option>
+              <option>Bradesco Saúde</option>
+              <option>SulAmérica</option>
+              <option>Amil</option>
+              <option>Porto Seguro Saúde</option>
+              <option>Careplus</option>
+              <option>Particular (sem plano)</option>
+              <option value="__outro">Outro / não sei informar</option>
+            </select>
+            <span class="pointer-events-none absolute right-1 top-1/2 -translate-y-1/2 text-brand-700" aria-hidden="true">▾</span>
+          </div>
+          <p class="mt-1 text-[11px] leading-snug text-slate-400">
+            O OCR preenche sozinho — troque aqui se estiver errado.
+          </p>
+        </div>
+
+        <!-- Escondido (atributo hidden) no modo PRONTO-SOCORRO: não existe
+             consulta marcada em atendimento de urgência. -->
+        <div id="fConsultaCard" class="rounded-2xl bg-white p-4 shadow-sm">
+          <label for="fConsulta" class="mb-1 block text-[11px] font-bold uppercase tracking-wide text-slate-500">Consulta</label>
+          <input id="fConsulta" type="text" readonly value="—" placeholder="Aguardando leitura…"
+                 class="w-full bg-transparent text-[17px] font-bold text-slate-900 outline-none placeholder:font-medium placeholder:text-slate-400" />
+        </div>
+      </div>
+
+      <!-- Link discreto para correção manual (ofuscação anti-UX não aqui: é saúde) -->
+      <p class="pt-1 text-[12px] text-slate-500">
+        Algum dado errado?
+        <button id="btnManual" class="font-bold text-brand-700 underline underline-offset-2 hover:text-brand-900">Digitar manualmente</button>
+      </p>
+    </div>
+
+    <!-- AÇÃO FINALIZADORA -->
+    <div class="mt-auto pt-6">
+      <button id="btnConfirmar"
+              class="btn-tactile w-full rounded-2xl bg-brand-700 px-5 py-5 text-[18px] font-extrabold text-white shadow-lg shadow-brand-700/30 hover:bg-brand-800 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:shadow-none focus:outline-none focus-visible:ring-4 focus-visible:ring-brand-400 focus-visible:ring-offset-2"
+              disabled aria-describedby="dicaConfirmar">
+        Confirmar e Finalizar ✓
+      </button>
+      <p id="dicaConfirmar" class="mt-2 text-center text-[12px] text-slate-500">
+        Digite seu nome e escolha o plano para liberar a confirmação.
+      </p>
+
+      <!-- Atalho: sair do fluxo autônomo e chamar humano -->
+      <button id="btnVoltarAjuda"
+              class="btn-tactile mt-3 w-full rounded-2xl bg-transparent px-5 py-3 text-[14px] font-bold text-slate-600 hover:bg-slate-100 focus:outline-none focus-visible:ring-4 focus-visible:ring-slate-300">
+        ↩︎ Voltar ao início · Preciso de ajuda
+      </button>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       ESTADO 4 — TELA DE SUCESSO / SUPORTE ACIONADO
+       Exibida quando: (a) usuário pede ajuda na Tela 1, ou
+       (b) usuário aceita ajuda no modal de inércia.
+       ============================================================ -->
+  <section id="screen-suporte" data-screen="suporte" hidden
+           class="flex flex-1 flex-col justify-center px-6 py-8 text-center"
+           aria-labelledby="titulo-suporte">
+
+    <!-- Sel de confirmação com pulso -->
+    <div class="relative mx-auto mb-6 grid h-24 w-24 place-items-center">
+      <span class="absolute inset-0 rounded-full bg-emerald-300 opacity-40 animate-pulseRing"></span>
+      <span class="relative grid h-24 w-24 place-items-center rounded-full bg-emerald-600 text-5xl text-white shadow-xl shadow-emerald-600/30" aria-hidden="true">🤝</span>
+    </div>
+
+    <h2 id="titulo-suporte" class="text-[25px] font-extrabold leading-snug tracking-tight text-slate-900">
+      Solicitação enviada à recepção
+    </h2>
+    <p id="subSuporte" class="mx-auto mt-3 max-w-sm text-[16px] leading-relaxed text-slate-600">
+      Alguém virá te atender em instantes.
+      <span class="block text-slate-500">(ou abra o chat abaixo)</span>
+    </p>
+
+    <!-- Chip de confirmação do chamado -->
+    <div id="ticketChipWrap" data-prio="normal"
+         class="mx-auto mt-6 inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-4 py-2 text-[13px] font-bold text-emerald-800">
+      <span class="prio-dot h-2.5 w-2.5 rounded-full bg-emerald-500"></span>
+      <span id="ticketChip">Chamado #4821 · Prioridade normal</span>
+    </div>
+
+    <!-- Chip do TIPO de atendimento (consulta médica x pronto-socorro) -->
+    <div id="tipoChip" data-tipo="consulta" hidden
+         class="mx-auto mt-3 inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-4 py-2 text-[13px] font-bold text-slate-700">
+      <span id="tipoChipIcon" aria-hidden="true">🩺</span>
+      <span id="tipoChipText">Consulta médica</span>
+    </div>
+
+    <!-- Chip do TEMPO MÉDIO de atendimento — DEPENDE DA GRAVIDADE DO CASO.
+         Nada de número fixo: o suporteObserver preenche conforme o modo
+         (eletivo x triagem) e a gravidade escolhida. Usa ATRIBUTO hidden. -->
+    <div id="timeChip" data-prio="eletivo" hidden
+         class="mx-auto mt-3 inline-flex items-center gap-2 rounded-full border border-brand-200 bg-brand-50 px-4 py-2 text-[13px] font-bold text-brand-800">
+      <span aria-hidden="true">⏱️</span>
+      <span id="timeChipText">Tempo médio de atendimento: ~2 min</span>
+    </div>
+
+    <!-- Chip do plano de saúde (só aparece se houver plano registrado) -->
+    <div id="planChip" hidden
+         class="mx-auto mt-3 inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-4 py-2 text-[13px] font-bold text-slate-700">
+      <span aria-hidden="true">🏷️</span>
+      <span id="planChipText">Plano: —</span>
+    </div>
+    <!-- chip usa ATRIBUTO hidden (não classe .hidden): é o que updatePlanChip()
+         alterna via el.planChip.hidden = true/false. -->
+
+    <!-- Ações pós-chamado -->
+    <div class="mt-7 space-y-3">
+      <button id="btnChat"
+              class="btn-tactile w-full rounded-2xl bg-brand-700 px-5 py-5 text-[17px] font-extrabold text-white shadow-lg shadow-brand-700/30 hover:bg-brand-800 focus:outline-none focus-visible:ring-4 focus-visible:ring-brand-400 focus-visible:ring-offset-2">
+        💬 Abrir chat com a recepção
+      </button>
+      <button id="btnReiniciar"
+              class="btn-tactile w-full rounded-2xl border-2 border-slate-300 bg-white px-5 py-4 text-[16px] font-bold text-slate-700 hover:bg-slate-50 focus:outline-none focus-visible:ring-4 focus-visible:ring-slate-300">
+        ↺ Fazer outro check-in
+      </button>
+    </div>
+
+    <!-- ===== PAINEL DE MÉTRICA DE VALOR (PoC) ===== -->
+    <!-- Rodapé fixo dentro da tela de sucesso: evidencia o ROI da PoC -->
+    <aside class="mt-8 rounded-3xl bg-slate-900 p-5 text-left text-white shadow-xl" aria-label="Métrica de valor da prova de conceito">
+      <p class="text-[10px] font-black uppercase tracking-[0.14em] text-brand-300">Métrica de valor · PoC</p>
+
+      <div class="mt-3 flex items-end gap-3">
+        <div class="flex-1">
+          <p class="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Antes</p>
+          <p class="text-3xl font-extrabold leading-none text-slate-400 line-through decoration-red-500 decoration-4">15 min</p>
+          <p class="mt-1 text-[11px] text-slate-500">Fila presencial</p>
+        </div>
+        <span class="pb-3 text-2xl text-brand-400" aria-hidden="true">→</span>
+        <div class="flex-1">
+          <p class="text-[11px] font-semibold uppercase tracking-wide text-brand-300">Agora</p>
+          <p class="text-3xl font-extrabold leading-none text-emerald-400">2 min</p>
+          <p class="mt-1 text-[11px] text-slate-500">Com Fluxo Dual</p>
+        </div>
+      </div>
+
+      <div class="mt-4 h-2.5 w-full overflow-hidden rounded-full bg-slate-700">
+        <div class="h-full rounded-full bg-gradient-to-r from-emerald-500 to-brand-400" style="width:87%"></div>
+      </div>
+
+      <p class="mt-3 text-[12px] leading-relaxed text-slate-300">
+        <strong class="text-white">Tempo médio de recepção otimizado: de 15 min para 2 min</strong>
+        <span class="block text-slate-400">Redução de 87% no tempo de espera até o atendimento.</span>
+      </p>
+    </aside>
+  </section>
+
+  <!-- ============================================================
+       ESTADO 3 (sobreposição) — MODAL DE INÉRCIA / ANTI-TRAVAMENTO
+       Timer global de 40s sem interação em QUALQUER tela do fluxo
+       de check-in. Gerenciado por startInertia()/resetInertia().
+       ============================================================ -->
+  <div id="inertiaModal"
+       class="absolute inset-0 z-50 hidden items-center justify-center bg-slate-900/70 p-5 backdrop-blur-sm"
+       role="dialog" aria-modal="true" aria-labelledby="inertiaTitle" aria-describedby="inertiaDesc">
+
+    <div class="w-full max-w-sm animate-popIn rounded-3xl bg-white p-6 shadow-2xl">
+      <!-- Anel de contagem regressiva visual -->
+      <div class="mx-auto mb-4 grid h-16 w-16 place-items-center rounded-full bg-amber-100 text-4xl" aria-hidden="true">⏳</div>
+
+      <h3 id="inertiaTitle" class="text-center text-[19px] font-extrabold leading-snug text-slate-900">
+        Notamos que você demorou um pouco.
+      </h3>
+      <p id="inertiaDesc" class="mt-2 text-center text-[15px] leading-relaxed text-slate-600">
+        Quer que a recepção te ajude agora?
+      </p>
+
+      <div class="mt-6 space-y-3">
+        <!-- Opção A: chamar humano (leva à Tela 4) -->
+        <button id="inertiaYes"
+                class="btn-tactile w-full rounded-2xl bg-brand-700 px-5 py-5 text-[17px] font-extrabold text-white shadow-lg shadow-brand-700/30 hover:bg-brand-800 focus:outline-none focus-visible:ring-4 focus-visible:ring-brand-400 focus-visible:ring-offset-2">
+          Sim, chamar atendente
+        </button>
+
+        <!-- Opção B: continuar autônomo (fecha e reinicia o timer) -->
+        <button id="inertiaNo"
+                class="btn-tactile w-full rounded-2xl border-2 border-slate-300 bg-white px-5 py-4 text-[16px] font-bold text-slate-700 hover:bg-slate-50 focus:outline-none focus-visible:ring-4 focus-visible:ring-slate-300">
+          Continuar sozinho
+        </button>
+      </div>
+
+      <p class="mt-4 text-center text-[11px] text-slate-400">
+        Atenção automática após 40 segundos sem atividade.
+      </p>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       TELA DE ESPERA DO ATENDENTE (overlay transiente)
+       Aberta por: Rota 2 da Tela 1, "Sim, chamar atendente" do modal
+       de inércia e escalonamento do chat. Fica visível até o atendente
+       chegar (automático) ou até o próprio usuário confirmar/cancelar.
+       Volta de classe (classList), igual ao modal de inércia.
+       ============================================================ -->
+  <div id="callOverlay"
+       class="absolute inset-0 z-50 hidden flex-col justify-center overflow-y-auto bg-brand-800 p-6 text-white"
+       role="dialog" aria-modal="true" tabindex="-1"
+       aria-labelledby="waitTitle" aria-describedby="waitDesc">
+
+    <div class="mx-auto w-full max-w-sm animate-fadeIn">
+
+      <!-- Atendente em movimento: anéis pulsantes + avatar -->
+      <div class="relative mx-auto mb-4 h-24 w-24">
+        <span class="absolute inset-0 rounded-full bg-white opacity-30 animate-pulseRing"></span>
+        <span class="absolute inset-0 rounded-full bg-white opacity-30 animate-pulseRing" style="animation-delay:.6s"></span>
+        <span id="waitAvatar" class="relative grid h-24 w-24 place-items-center rounded-full bg-white text-5xl shadow-2xl" aria-hidden="true">🙋‍♀️</span>
+      </div>
+
+      <!-- Nº do chamado emitido -->
+      <p id="waitTicket"
+         class="mx-auto inline-flex items-center gap-2 rounded-full border border-white/30 bg-white/10 px-4 py-1.5 text-[13px] font-bold text-brand-100">
+        Emitindo chamado…
+      </p>
+
+      <h3 id="waitTitle" class="mt-3 text-center text-[24px] font-extrabold leading-snug">
+        Aguardando o atendente
+      </h3>
+      <p id="waitDesc" class="mx-auto mt-1.5 max-w-xs text-center text-[14.5px] leading-relaxed text-brand-100">
+        Fique onde está — a fila anda rápido. Avisamos aqui assim que
+        <strong class="text-white">alguém sair do balcão</strong> rumo a você.
+      </p>
+
+      <!-- STATUS AO VIVO (o que está acontecendo AGORA) -->
+      <p id="waitStatus" role="status" aria-live="polite"
+         class="mt-4 rounded-2xl border border-white/25 bg-white/10 px-4 py-3 text-center text-[15px] font-bold leading-snug">
+        Enviando seu chamado para a recepção…
+      </p>
+
+      <!-- DOIS PAINÉIS: tempo parado x posição na fila -->
+      <div class="mt-3 grid grid-cols-2 gap-3">
+        <div class="rounded-2xl border border-white/20 bg-white/10 px-3 py-3 text-center">
+          <p class="text-[10.5px] font-black uppercase tracking-wider text-brand-200">Já espero</p>
+          <p id="waitTimer" class="mt-0.5 text-[26px] font-extrabold tabular-nums text-white">00:00</p>
+        </div>
+        <div class="rounded-2xl border border-white/20 bg-white/10 px-3 py-3 text-center">
+          <p class="text-[10.5px] font-black uppercase tracking-wider text-brand-200">Na sua frente</p>
+          <p id="waitQueue" class="mt-0.5 text-[26px] font-extrabold tabular-nums text-white">—</p>
+        </div>
+      </div>
+
+      <!-- LINHA DO TEMPO DA ESPERA -->
+      <ol class="mt-5 space-y-3.5" aria-label="Etapas do atendimento">
+        <li id="waitStep1" data-step="pending" class="wait-step">
+          <span class="wait-dot" data-n="1" aria-hidden="true">1</span>
+          <span>
+            <span class="wait-rot">Chamado enviado à recepção</span>
+            <span class="wait-sub">Conectando com o sistema da fila…</span>
+          </span>
+        </li>
+        <li id="waitStep2" data-step="pending" class="wait-step">
+          <span class="wait-dot" data-n="2" aria-hidden="true">2</span>
+          <span>
+            <span class="wait-rot">Atendente designado</span>
+            <span class="wait-sub">Procurando alguém livre no balcão…</span>
+          </span>
+        </li>
+        <li id="waitStep3" data-step="pending" class="wait-step">
+          <span class="wait-dot" data-n="3" aria-hidden="true">3</span>
+          <span>
+            <span class="wait-rot">A caminho até você</span>
+            <span class="wait-sub">Ainda na fila de espera…</span>
+          </span>
+        </li>
+      </ol>
+
+      <!-- AÇÕES: o usuário nunca fica preso nesta tela -->
+      <div class="mt-6 space-y-2.5">
+        <button id="waitAttended" type="button" disabled
+                class="btn-tactile w-full rounded-2xl bg-white px-5 py-4 text-[17px] font-extrabold text-brand-800 shadow-lg hover:bg-brand-50 focus:outline-none focus-visible:ring-4 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-brand-800 disabled:cursor-not-allowed disabled:opacity-45">
+          Já fui atendido ✓
+        </button>
+
+        <button id="waitChat" type="button"
+                class="btn-tactile w-full rounded-2xl border-2 border-white/45 bg-white/10 px-5 py-3.5 text-[15.5px] font-bold text-white hover:bg-white/20 focus:outline-none focus-visible:ring-4 focus-visible:ring-white/60">
+          💬 Enquanto isso, falar com a IA
+        </button>
+
+        <button id="waitCancel" type="button"
+                class="w-full px-5 py-2 text-[14px] font-semibold text-brand-200 underline underline-offset-4 hover:text-white focus:outline-none focus-visible:ring-4 focus-visible:ring-white/60">
+          Cancelar chamado
+        </button>
+      </div>
+
+      <p class="mt-4 text-center text-[11px] leading-snug text-brand-200">
+        Tempo médio para o seu caso: <strong id="waitMedia" class="text-white">~2 min</strong> · 15 min antes do Fluxo Dual.
+      </p>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       CHAT DE AJUDA COM INTELIGÊNCIA ARTIFICIAL
+       Painel em tela cheia dentro do container do app.
+       Abre por: botão 🤖 do header, link da Tela 1, ou botão da Tela 4.
+       Pausa o timer de inércia enquanto estiver aberto (o usuário está
+       interagindo com um humano/IA — não faz sentido insistir com modal).
+       ============================================================ -->
+  <!-- ANCORAGEM NO VIEWPORT (`fixed`), NÃO em #app.
+       Motivo: #app cresce com o conteúdo (781px numa viewport de 749px),
+       então um painel `absolute inset-0` herdava essa altura e a barra de
+       digitação acabava FORA da tela — usuário abria o chat e não conseguia
+       escrever. Com `fixed` o cabeçalho fica grudado no topo e a barra de
+       envio sempre visível no rodapé, em qualquer tela e qualquer rolagem. -->
+  <div id="chatPanel" hidden
+       class="fixed left-1/2 top-0 bottom-0 z-[70] flex w-full max-w-md -translate-x-1/2 flex-col bg-white sm:top-6 sm:bottom-6 sm:overflow-hidden sm:rounded-3xl sm:shadow-2xl"
+       role="dialog" aria-modal="true" aria-labelledby="chatTitle">
+
+    <!-- Cabeçalho do chat — troca de identidade conforme quem responde:
+         IA (🤖 / "Assistente Saúde+") x RECEPÇÃO humana (👩‍💼 / "Recepção"). -->
+    <div class="flex shrink-0 items-center gap-3 bg-brand-700 px-4 py-3 text-white shadow-md">
+      <button id="chatClose" type="button" aria-label="Fechar chat"
+              class="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-white/15 text-xl transition hover:bg-white/25 focus:outline-none focus-visible:ring-4 focus-visible:ring-white/50 active:scale-95">
+        ✕
+      </button>
+      <div id="chatAvatar" class="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-white/20 text-lg" aria-hidden="true">🤖</div>
+      <div class="min-w-0 leading-tight">
+        <p id="chatTitle" class="truncate text-[15px] font-extrabold">Assistente Saúde+</p>
+        <p id="chatSub" class="truncate text-[11px] font-medium text-brand-100">IA de apoio · responde na hora</p>
+      </div>
+      <span class="ml-auto flex shrink-0 items-center gap-1.5 rounded-full bg-emerald-500/25 px-2.5 py-1 text-[10px] font-black uppercase tracking-wide text-emerald-100">
+        <span class="h-2 w-2 rounded-full bg-emerald-300"></span> online
+      </span>
+    </div>
+
+    <!-- Faixa de CONTEXTO DO PROTOCOLO — só na conversa com a recepção
+         humana, para o paciente (e o atendente) verem de quem é a vez.
+         Usa ATRIBUTO hidden (mesmo padrão dos chips da Tela 4). -->
+    <div id="chatCtx" hidden
+         class="flex shrink-0 flex-wrap items-center justify-center gap-1.5 border-b border-slate-200 bg-slate-50 px-3 py-2 text-[11.5px] font-bold text-slate-700">
+      <span id="chatCtxTicket" class="rounded-full bg-white px-2.5 py-1 ring-1 ring-slate-200">Chamado #—</span>
+      <span id="chatCtxPrio" class="rounded-full bg-white px-2.5 py-1 ring-1 ring-slate-200">Prioridade —</span>
+      <span id="chatCtxTempo" class="rounded-full bg-white px-2.5 py-1 ring-1 ring-slate-200">⏱ —</span>
+    </div>
+
+    <!-- Área de mensagens -->
+    <div id="chatMessages"
+         class="no-scrollbar flex-1 space-y-3 overflow-y-auto bg-slate-50 px-4 py-4"
+         aria-live="polite" aria-label="Conversa com a assistente de IA">
+      <!-- mensagens injetadas pelo JS -->
+    </div>
+
+    <!-- Respostas rápidas (chips) -->
+    <div id="chatChips"
+         class="no-scrollbar flex shrink-0 gap-2 overflow-x-auto bg-slate-50 px-4 pb-2">
+      <!-- chips injetados pelo JS -->
+    </div>
+
+    <!-- Barra de entrada -->
+    <form id="chatForm" class="shrink-0 border-t border-slate-200 bg-white p-3" autocomplete="off">
+      <div class="flex items-end gap-2">
+        <label for="chatInput" class="sr-only">Escreva sua mensagem</label>
+        <input id="chatInput" type="text" placeholder="Escreva sua dúvida…"
+               class="min-h-[48px] flex-1 rounded-2xl border-2 border-slate-300 bg-slate-50 px-4 text-[16px] text-slate-900 outline-none transition focus:border-brand-600 focus:bg-white focus:ring-0" />
+        <button id="chatSend" type="submit" aria-label="Enviar mensagem"
+                class="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-brand-700 text-xl text-white shadow-md transition hover:bg-brand-800 focus:outline-none focus-visible:ring-4 focus-visible:ring-brand-400 active:scale-95">
+          ➤
+        </button>
+      </div>
+      <p class="mt-2 text-center text-[10px] leading-snug text-slate-400">
+        IA de apoio administrativo. Não substitui diagnóstico médico — em emergências ligue 192 (SAMU).
+      </p>
+    </form>
+  </div>
+
+  <!-- ============================================================
+       TOAST — feedback visual não bloqueante
+       ============================================================ -->
+  <!-- SAFELIST TAILWIND (CDN)
+       Garante que as classes só aplicadas em runtime pelo JS existam no CSS
+       gerado: opacity-100/translate-y-0 (toast), opacity-60/cursor-wait (botão
+       de scan em loading). O elemento fica oculto — só serve de "semente". -->
+  <div class="hidden opacity-100 translate-y-0 opacity-60 cursor-wait" aria-hidden="true"></div>
+
+  <div id="toast"
+       class="pointer-events-none absolute bottom-5 left-1/2 z-[60] w-[92%] max-w-sm -translate-x-1/2 translate-y-4 rounded-2xl bg-slate-900 px-4 py-3 text-center text-[14px] font-semibold text-white opacity-0 shadow-2xl transition-all duration-300"
+       role="status" aria-live="polite"></div>
+
+</main>
+
+<!-- ============================================================
+     RODAPÉ GLOBAL (fora do app container: assinatura do protótipo)
+     ============================================================ -->
+<footer class="mx-auto max-w-md px-6 py-5 text-center text-[11px] leading-relaxed text-slate-400 sm:pb-10">
+  <p><strong class="text-slate-500">Fluxo Dual — Recepção Sem Fila</strong> · Protótipo PoC para Hackathon de Saúde</p>
+  <p class="mt-1">HTML + Tailwind CSS + JavaScript puro · Dados sintéticos (nenhum dado real de paciente)</p>
+</footer>
+
+<script>
+/* ==========================================================================
+   FLUXO DUAL — LÓGICA DE APLICAÇÃO (JavaScript puro)
+   Autor: Engenharia de Software / UX em Saúde
+   --------------------------------------------------------------------------
+   ARQUITETURA:
+     • State machine simples com 3 telas + 2 sobreposições transientes.
+     • Timer de inércia global (40s) com reset em qualquer interação.
+     • Camada de "serviços" isolada em objetos (ocrService, chatService,
+       queueService) para troca por implementações reais sem tocar na UI.
+   ========================================================================== */
+
+'use strict';
+
+/* --------------------------------------------------------------------------
+   1. CAMADA DE SERVIÇOS (SEAMS DE INTEGRAÇÃO)
+   --------------------------------------------------------------------------
+   TODO o código que fala com o mundo externo vive aqui. Para produção,
+   basta substituir o corpo dos métodos — a UI não muda.
+   -------------------------------------------------------------------------- */
+
+/**
+ * ocrService.scan(fileOrBlob)
+ * -----------------------------------------------------------------------------
+ * PONTO DE INTEGRAÇÃO REAL — OCR / Extração de documento.
+ *
+ * Em produção, substituir por uma das opções:
+ *
+ *  (A) Oracle Cloud Infrastructure (OCI) Document Understanding API
+ *      - Endpoint: POST https://document.{region}.oci.oraclecloud.com/2022-11-09/documentActions
+ *      - Tipo:    INVOICE_INSPECTION / TEXT_EXTRACTION / DOCUMENT_TYPE_DETECTION
+ *      - Auth:    Token de assinatura (OCI SDK: ObjectStorageCompat / md.oci..)
+ *      - Fluxo sugerido:
+ *          1) upload da imagem capturada (<input type="file" capture="environment">
+ *             ou getUserMedia() + <canvas>) ou do ARQUIVO PDF anexado
+ *             (<input type="file" accept="application/pdf">) para um bucket
+ *             OCI Object Storage;
+ *          2) chamar a ação de inspeção e aguardar o job (polling ou callbacks);
+ *          3) mapear os campos resultantes para { nome, convenio, consulta }.
+ *      - PDF: a mesma API aceita PDF multi-página; alternativamente usar a
+ *        OCI Document Understanding "PDF_TEXT_EXTRACTION" ou converter a
+ *        página 1 em PNG no cliente (<canvas> + pdf.js) antes do upload.
+ *
+ *  (B) Alternativas: Google Cloud Vision DOCUMENT_TEXT_DETECTION,
+ *      AWS Textract DetectDocumentText, ou Tesseract.js no cliente.
+ *
+ *  (C) Leitura de PDF: pdf.js no cliente (extração de texto sem custo de OCR)
+ *      quando o documento já vem digitalizado em texto — só imagem exige OCR.
+ *
+ *  LGPD/GDPR: NÃO persistir a imagem do documento sem consentimento explícito;
+ *  preferir descarte após extração ("data minimization") e mascarar CPF/RG.
+ *
+ * @param {File|Blob|null} source  — foto capturada (câmera/galeria) ou PDF anexado.
+ *                                 `null` = modo demonstração (sem arquivo).
+ * @param {'demo'|'foto'|'pdf'} [kind] — origem do arquivo (só afeta o fluxo real).
+ * @returns {Promise<{nome:string, convenio:string, consulta:string, confidence:number}>}
+ */
+const ocrService = {
+  async scan(source = null, kind = 'demo') {
+    // --- MODO DEMO: simula latência realista do OCR (2s) -------------------
+    await new Promise(r => setTimeout(r, 2000));
+
+    // Payload sintético (FANTASIA). Em produção, vem da resposta da API.
+    return {
+      nome:      'Maria Silva',
+      convenio:  'Saúde Total',
+      consulta:  '14:30 com Dr. Carlos',
+      confidence: 0.97
+      // Em produção, adicionar também: cpf_mascarado, numero_carteirinha,
+      // validade, plano, codigo_beneficiario…
+    };
+
+    /* --- SKETCH DE IMPLEMENTAÇÃO REAL (descomentar em produção) -----------
+    const formData = new FormData();
+    formData.append('document', source);
+    const res = await fetch('https://api.saudemasplus.com/v1/ocr/scan', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${getSessionToken()}` },
+      body: formData
+    });
+    if (!res.ok) throw new Error('OCR falhou');
+    return await res.json(); // { nome, convenio, consulta, confidence }
+    ---------------------------------------------------------------------- */
+  }
+};
+
+/**
+ * queueService.dispatch(payload)
+ * -----------------------------------------------------------------------------
+ * PONTO DE INTEGRAÇÃO REAL — Fila digital / Chamado de atendimento.
+ * Publica a solicitação de suporte num broker (WebSocket, MQTT ou fila HTTP)
+ * consumida pelos terminais da recepção.
+ *
+ * Produção sugerida:
+ *   - WebSocket: wss://api.saudemasplus.com/v1/queue  (tempo real, baixa latência)
+ *   - Alternativa: AWS IoT Core / Oracle Integration Cloud (OIC) / fila RabbitMQ
+ *   - Payload: { patientId, triage: 'HUMAN_SUPPORT', priority, location, ts }
+ *   - Retorno esperado: { ticket, waitTimeSec, assignedAgentId }
+ */
+const queueService = {
+  async dispatch(reason) {
+    // DEMO: gera um número de chamado sintético.
+    await new Promise(r => setTimeout(r, 250));
+    return {
+      ticket: `#${Math.floor(1000 + Math.random() * 9000)}`,
+      reason,
+      waitTimeSec: 42
+    };
+  }
+};
+
+/**
+ * chatService.open(ticket)
+ * -----------------------------------------------------------------------------
+ * PONTO DE INTEGRAÇÃO REAL — Chat de atendimento.
+ * Opções: WebSocket próprio, Twilio Conversations, Intercom, Zendesk Sunshine,
+ * ou SDK de mensageria hospitalar. Deve herdar o `ticket` para que o
+ * atendente já abra a conversa com o contexto do paciente.
+ */
+const chatService = {
+  async open(ticket) {
+    // DEMO: apenas loga a intenção.
+    console.info('[chatService] abriria conversa para o chamado', ticket);
+    return { ok: true, ticket };
+  }
+};
+
+/**
+ * aiService.reply(userMessage, context)
+ * -----------------------------------------------------------------------------
+ * PONTO DE INTEGRAÇÃO REAL — CHAT DE AJUDA COM INTELIGÊNCIA ARTIFICIAL.
+ *
+ * Nesta PoC a resposta é gerada por um motor de regras local (offline, sem
+ * custo, determinístico). Em produção, troque o corpo por uma chamada a um
+ * LLM com RAG sobre a cartela de planos/protocolos da clínica.
+ *
+ * Opção A — Oracle Cloud Infrastructure (OCI) Generative AI (Chat API):
+ *   Endpoint: POST https://generativeai.oci.{region}.oraclecloud.com/v1/chatCompletions
+ *   Modelo:   "cohere.command" ou meta/llama-3.x (ou model customizado)
+ *   Auth:     OCI SDK / API key (never exposta no browser — use um backend
+ *             proxy/edge function para assinar a requisição)
+ *   Body: {
+ *     "compartmentId": "...",
+ *     "model": "cohere.command",
+ *     "chatHistory": [{ "role":"SYSTEM", "content": "<persona + regras>" }, ...],
+ *     "message": userMessage
+ *   }
+ *
+ * Opção B — OpenAI-compatible (OpenAI / Azure OpenAI / local vLLM):
+ *   POST https://api.exemplo.com/v1/chat/completions  { model, messages, temperature: 0.3 }
+ *
+ * REGRAS DE SEGURANÇA EM SAÚDE (obrigatórias no system prompt):
+ *   1. NUNCA dar diagnóstico, dosagem ou conduta clínica — sempre escalar.
+ *   2. Emergência → "Ligue 192 (SAMU)" e acionar recepção imediatamente.
+ *   3. Só confirmar dados que já existem no contexto (nome/plano/consulta);
+ *      nunca inventar horário, cobertura ou disponibilidade de médico.
+ *   4. LGPD: não enviar CPF/RG completo ao modelo; minimizar dados no payload.
+ *
+ * Contexto enviado ao modelo (para respostas personalizadas):
+ *   { nome, convenio, consulta, ticket } — vindo do estado do app.
+ *
+ * @param {string} userMessage — texto digitado pelo paciente
+ * @param {object} context     — { nome, convenio, consulta, screen }
+ * @returns {Promise<string>}  — resposta da IA em texto simples
+ */
+const aiService = {
+  async reply(userMessage, context = {}) {
+    const msg = (userMessage || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    // Simula latência humana de digitação (400–1100ms) para dar credibilidade.
+    await new Promise(r => setTimeout(r, 400 + Math.random() * 700));
+
+    // --- DETECÇÃO DE PLANO DE SAÚDE MENCIDO NA CONVERSA ------------------
+    // Se o paciente escrever o nome do plano ("meu plano é unimed"), a IA
+    // registra automaticamente no formulário de check-in (preenchimento
+    // conversacional — ótimo para idosos que não acham o <select>).
+    const planosCatalogo = [
+      'saude total', 'unimed', 'bradesco saude', 'sulamerica',
+      'amil', 'porto seguro saude', 'careplus', 'particular'
+    ];
+    const planoMencionado = planosCatalogo.find(p => msg.includes(p));
+    if (planoMencionado && /(meu plano|plano e|plano eh|tenho|uso|sou|fazer cadastro|meu convenio)/.test(msg)) {
+      // Mapa -> nome de exibição canônico (evita "Particular" duplicado da
+      // opção "Particular (sem plano)").
+      const displayMap = {
+        'saude total': 'Saúde Total',
+        'unimed': 'Unimed',
+        'bradesco saude': 'Bradesco Saúde',
+        'sulamerica': 'SulAmérica',
+        'amil': 'Amil',
+        'porto seguro saude': 'Porto Seguro Saúde',
+        'careplus': 'Careplus',
+        'particular': 'Particular (sem plano)'
+      };
+      const nomeExibicao = displayMap[planoMencionado] ||
+        planoMencionado.replace(/\b\w/g, c => c.toUpperCase());
+      aplicarPlano(nomeExibicao);
+      return `Perfeito! Registrei seu plano como **${nomeExibicao}** no seu check-in. ✔️\n\n` +
+             `Você pode conferir no campo "Qual é o seu plano de saúde?" — se estiver errado, é só trocar por lá.`;
+    }
+
+    // --- CONSULTA MÉDICA x PRONTO-SOCORRO ---------------------------------
+    // A IA também troca o tipo de atendimento ("quero ir no pronto-socorro").
+    // GUARDAS DE SEGURANÇA:
+    //   (a) se houver relato de SINTOMA, não entra aqui — o ramo clínico
+    //       mais abaixo assume e sempre escala (nunca orienta);
+    //   (b) só troca se o pedido for explícito e direcionado ao pronto-socorro.
+    const temSintoma = /(dor |falta de ar|febre|sangra|desmai|nao estou bem|não estou bem|mal estar|sintoma|convuls|inchad)/.test(msg);
+    const falaDePronto = /(pronto[- ]socorro|triagem|diferenca entre consulta)/.test(msg);
+
+    if (!temSintoma && falaDePronto) {
+      // Pedido explícito de trocar para urgência.
+      if (/(mudar|trocar|alterar|registrar|quero|preciso|marcar|escolher|selecionar).{0,40}(pronto|urgenc|triagem)/.test(msg)) {
+        if (state.tipoAtendimento !== 'pronto') setTipo('pronto');
+        return `Registrei seu atendimento como **🚑 Pronto-socorro**. ✔️\n\n` +
+               `Na próxima tela você escolhe a **gravidade** (leve / moderada / crítica) — ` +
+               `é ela que define a **prioridade** da fila: verde, laranja ou vermelho. ` +
+               `Depois é só **digitar seu nome** (ou anexar **foto/PDF**) — o plano é opcional em urgência.`;
+      }
+
+      // Pedido explícito de voltar para consulta eletiva (só faz sentido
+      // se ele estiver atualmente como pronto-socorro).
+      if (state.tipoAtendimento === 'pronto' &&
+          /(mudar|trocar|voltar|nao e|nao eh|quero).{0,40}consulta/.test(msg)) {
+        setTipo('consulta');
+        return `Pronto, voltei para **🩺 Consulta médica** (prioridade normal). ✔️\n\n` +
+               `Nesse caso você faz o check-in normal e escolhe seu plano.`;
+      }
+
+      // Pergunta sobre a diferença / como funciona.
+      if (/(qual|quais|como|difere|diferenca|funciona|explica|explique|onde|quando|devo|quando devo)/.test(msg)) {
+        return `São fluxos diferentes:\n\n` +
+               `• **Consulta médica** — eletivo, com hora marcada: você escaneia o documento, ` +
+               `fotografa ou **anexa o PDF**, escolhe o plano e recebe **senha normal** (espera de ~2 min).\n` +
+               `• **Pronto-socorro** — urgência: você informa a **gravidade** do caso ` +
+               `(leve / moderada / crítica), faz a identificação (nome + foto ou PDF) e ` +
+               `o **plano é opcional**. A prioridade sai **conforme o caso**: ` +
+               `leve → normal, moderada → média, crítica → **alta**, direto à triagem.\n\n` +
+               `Se for urgência, me diga "quero ir no pronto-socorro" que eu troco por você — ` +
+               `ou toque no botão 🚑 da tela inicial.`;
+      }
+
+      return `Os dois botões estão na tela inicial: **🩺 Consulta médica** e **🚑 Pronto-socorro**. ` +
+             `Toque no que for o seu caso — e no pronto-socorro é a **triagem de gravidade** ` +
+             `(leve, moderada ou crítica) que define a prioridade do seu chamado.`;
+    }
+
+    // --- MOTOR DE RESPOSTAS (demo offline) --------------------------------
+    if (/\b(oi|ola|bom dia|boa tarde|boa noite|e ai)\b/.test(msg)) {
+      return `Olá${context.nome && context.nome !== '—' ? ', ' + context.nome.split(' ')[0] : ''}! 👋 ` +
+             `Sou a assistente virtual da Clínica Saúde+. Posso ajudar com plano de saúde, horários, documentos e o caminho até a sala.`;
+    }
+    if (/(plano|convenio)/.test(msg)) {
+      const atual = currentPlano();
+      return `Aceitamos: Unimed, Saúde Total, Bradesco Saúde, SulAmérica, Amil, Porto Seguro, Careplus e atendimento particular.\n\n` +
+             (atual ? `Seu plano registrado: **${atual}**.`
+                    : `Ainda não registrei seu plano — é só me dizer ("meu plano é Unimed") ou escolher no formulário de check-in.`) +
+             `\n\nQuer que eu verifique cobertura de algum exame?`;
+    }
+    if (/(horario|hora|consulta|dr|doutor|agendad)/.test(msg)) {
+      return context.consulta && context.consulta !== '—'
+        ? `Sua consulta: **${context.consulta}**. Chegue 10 min antes e traga documento com foto + carteirinha.`
+        : `Ainda não tenho sua consulta aqui. Escaneie a carteirinha no check-in que eu mostro o horário.`;
+    }
+    // "espera" sozinho saiu daqui: senão "quanto tempo de espera?" caía no
+    // caminho da sala e nunca chegava no TEMPO MÉDIO de atendimento.
+    if (/(onde|sala|caminho|setor|elevador|como chego)/.test(msg)) {
+      return `Após o check-in, siga o corredor lateral, sala de espera **B** (2º andar). Há elevador e poltronas perto do balcão.`;
+    }
+    if (/(documento|rg|cnh|carteirinha|levar|exame|resultado|receita)/.test(msg)) {
+      return `Traga: documento com foto, carteirinha do convênio e pedidos/exames anteriores. A foto da carteirinha já basta para o check-in.`;
+    }
+    if (/(pagar|valor|preco|custo|particular|coparticipacao)/.test(msg)) {
+      return `Valores particulares variam por especialidade. A recepção emite o orçamento antes do atendimento — posso chamar alguém para fechar esse valor.`;
+    }
+    if (/(urgencia|emergencia|dor forte|socorro|mal estar|sintoma)/.test(msg)) {
+      // SEGURO CLÍNICO: nunca aconselhar. Escalar sempre.
+      return `Isso merece atenção de um profissional. **Não posso dar orientação clínica.**\n\n` +
+             `Se estiver grave, ligue **192 (SAMU)**. Quer que eu chame a recepção agora?`;
+    }
+
+    // --- TEMPO MÉDIO DE ATENDIMENTO (DEPENDE DA GRAVIDADE DO CASO) ------
+    // Fica DEPOIS do ramo de sintoma de propósito: quem relata dor nunca pode
+    // receber previsão de fila no lugar do escalonamento para o SAMU.
+    if (/(quanto tempo|quanto demora|demora|tempo (medio|estimado|de espera|de atendimento)|previsao|estimativa|vou esperar|senha|fila)/.test(msg)) {
+      const tm = tempoMedioAtendimento();
+      const nota = tm.nota.charAt(0).toUpperCase() + tm.nota.slice(1);
+      return `⏱ **Tempo médio de atendimento para o seu caso: ${tm.texto}.**\n\n` +
+             `${nota}.\n\n` +
+             `Antes do Fluxo Dual eram **15 min** de fila na recepção. ` +
+             `Se o caso piorar, me avise: quanto mais grave, menor a espera — ` +
+             `em prioridade **ALTA** o atendimento é imediato.`;
+    }
+    if (/(atendente|humano|pessoa|recepcao|falar com alguem|ajuda)/.test(msg)) {
+      return `Claro! Posso acionar a recepção agora — é só tocar no botão abaixo que alguém vem te atender.`;
+    }
+    if (/(obrigad|valeu|brigado)/.test(msg)) {
+      return `De nada! Estou aqui se precisar de mais alguma coisa. 😊`;
+    }
+
+    // Resposta padrão (fallback) — sempre oferece caminhos concretos.
+    return `Entendi! Posso ajudar com: **plano de saúde**, **horário da consulta**, **documentos**, **caminho até a sala** e **tempo de espera**.\n\n` +
+           (context.screen === 'checkin'
+             ? `Você está no check-in — pode escanear a carteirinha ou me dizer seu plano.`
+             : `Me conta o que precisa e eu resolvo com você.`);
+  }
+};
+
+/** analyticsService.track(event, props) — PONTO DE INTEGRAção: telemetria.
+ *  Produção: Oracle Analytics / GA4 / Mixpanel. Use para alimentar a métrica
+ *  de "tempo médio de recepção" exibida no rodapé da tela de sucesso. */
+const analyticsService = {
+  track(event, props = {}) {
+    console.info('[analytics]', event, props);
+  },
+  /** Navegação entre telas (alias para track, mantido explícito por clareza). */
+  screenView(screenName) {
+    this.track('screen_view', { screen: screenName });
+  }
+};
+
+/* --------------------------------------------------------------------------
+   2. ESTADO DA APLICAÇÃO
+   -------------------------------------------------------------------------- */
+
+const INERTIA_TIMEOUT_MS = 40_000; // 40 segundos — timer global de inércia
+
+/* Telas em que o timer de inércia está ARMADO.
+   Conforme spec: "qualquer tela do fluxo de check-in" — ou seja, a Tela 1
+   (dupla rota) e a Tela 2 (check-in rápido). A Tela 4 fica de fora:
+   o atendente já foi acionado, não faz sentido pressionar o usuário. */
+const INERTIA_SCREENS = ['inicio', 'checkin'];
+
+const state = {
+  screen: 'inicio',          // 'inicio' | 'checkin' | 'suporte'
+  docScanned: false,         // documento já lido pelo OCR?
+  docKind: null,             // 'demo' | 'foto' | 'pdf' — origem da leitura atual
+  scanning: false,           // OCR em andamento (evita disparo duplicado)
+  previewUrl: null,          // ObjectURL da foto capturada (revogada no reset)
+  inertiaTimer: null,        // handle do setTimeout da inércia
+  inertiaModalOpen: false,
+  chatOpen: false,           // chat de IA aberto (pausa a inércia)
+  chatBooted: false,         // mensagem de boas-vindas da IA já enviada?
+  chatMode: 'ia',            // 'ia' | 'recepcao' — quem está do outro lado
+  recBooted: false,          // boas-vindas da RECEPÇÃO já enviada?
+  ticket: null,              // nº do chamado de suporte (Tela 4)
+  waitTicket: null,          // nº do chamado EM ESPERA (overlay de espera)
+  esperandoAtendente: false, // overlay de espera do atendente aberto?
+  waitTimers: [],            // handles de setTimeout da sequência de espera
+  waitTicker: null,          // handle do contador de segundos de espera
+  waitSec: 0,                // segundos já aguardados
+  waitResolve: null,         // resolve() da Promise de chamarRecepcao()
+  tipoAtendimento: 'consulta', // 'consulta' | 'pronto' — tipo do atendimento
+  gravidade: null,           // 'leve' | 'moderada' | 'critica' (só no modo pronto)
+  lastInertiaReason: null
+};
+
+/**
+ * GRAVIDADES — matriz da triagem de pronto-socorro.
+ * A prioridade NÃO é mais fixa em ALTA: depende do caso escolhido.
+ *   leve    → PRIORIDADE NORMAL (verde)     · espera ~5 min
+ *   moderada→ PRIORIDADE MÉDIA  (laranja)   · espera ~3 min
+ *   critica → PRIORIDADE ALTA   (vermelho)  · espera IMEDIATA (< 1 min)
+ * `css` é o valor de data-prio consumido pelo <style> da Tela 2.
+ * `tempoMedio` é o TEMPO DE ATENDIMENTO daquele caso — quanto mais grave,
+ * menor a espera (é a fila de prioridade que faz isso, não um número fixo).
+ */
+const GRAVIDADES = {
+  leve:     { rotulo: 'Leve',     css: 'normal', prio: 'NORMAL', ticket: 'Prioridade normal', tempoMedio: '~5 min' },
+  moderada: { rotulo: 'Moderada', css: 'media',  prio: 'MÉDIA',  ticket: 'Prioridade média',  tempoMedio: '~3 min' },
+  critica:  { rotulo: 'Crítica',  css: 'alta',   prio: 'ALTA',   ticket: 'PRIORIDADE ALTA',   tempoMedio: 'imediato (< 1 min)' }
+};
+
+/** Tempo médio da CONSULTA ELETIVA (hora marcada) — coerente com a métrica de 2 min. */
+const TEMPO_MEDIO_CONSULTA = '~2 min';
+
+/**
+ * tempoMedioAtendimento() — fonte única do TEMPO MÉDIO DE ATENDIMENTO.
+ * Ele muda conforme a gravidade do caso (e some quando a gravidade não
+ * existe, no modo consulta):
+ *   consulta eletiva      → ~2 min   (hora marcada)
+ *   pronto · sem gravidade→ ~3 min   (triagem ainda a definir)
+ *   pronto · leve         → ~5 min   (prioridade normal)
+ *   pronto · moderada     → ~3 min   (prioridade média)
+ *   pronto · crítica      → imediato (prioridade alta, < 1 min)
+ * Usado pelo chat, pelo chip da Tela 4 e pelo rodapé da sala de espera.
+ * @returns {{ texto: string, nota: string, css: string }}
+ */
+function tempoMedioAtendimento() {
+  const urgente = state.tipoAtendimento === 'pronto';
+  const g = GRAVIDADES[state.gravidade];
+
+  if (urgente && g) {
+    return {
+      texto: g.tempoMedio,
+      nota: `gravidade ${g.rotulo.toLowerCase()} · prioridade ${g.prio.toLowerCase()}`,
+      css: g.css
+    };
+  }
+  if (urgente) {
+    return { texto: '~3 min', nota: 'pronto-socorro · prioridade a definir', css: 'pendente' };
+  }
+  return { texto: TEMPO_MEDIO_CONSULTA, nota: 'consulta eletiva · hora marcada', css: 'eletivo' };
+}
+
+/* --------------------------------------------------------------------------
+   3. REFERÊNCIAS DO DOM
+   -------------------------------------------------------------------------- */
+const $ = (id) => document.getElementById(id);
+
+const screens = {
+  inicio:   $('screen-inicio'),
+  checkin:  $('screen-checkin'),
+  suporte:  $('screen-suporte')
+};
+
+const el = {
+  statusText:   $('statusText'),
+  statusDot:    $('statusDot'),
+  // Tela 1
+  btnRota1:     $('btnRota1'),
+  btnRota2:     $('btnRota2'),
+  rota1Icon:    $('rota1Icon'),
+  rota1Label:   $('rota1Label'),
+  descRota1:    $('descRota1'),
+  tipoConsulta: $('tipoConsulta'),
+  tipoPronto:   $('tipoPronto'),
+  tipoHint:     $('tipoHint'),
+  tipoUrgente:  $('tipoUrgente'),
+  btnIaLink:    $('btnIaLink'),
+  btnOpenChat:  $('btnOpenChat'),
+  // Tela 2
+  btnScan:      $('btnScan'),
+  btnCapture:   $('btnCapture'),
+  btnPdf:       $('btnPdf'),
+  btnConfirmar: $('btnConfirmar'),
+  btnVoltarAjuda: $('btnVoltarAjuda'),
+  btnManual:    $('btnManual'),
+  scanArea:     $('scanArea'),
+  scanIdle:     $('scanIdle'),
+  scanLoading:  $('scanLoading'),
+  scanLoadingTitle: $('scanLoadingTitle'),
+  scanLoadingSub:   $('scanLoadingSub'),
+  scanDone:     $('scanDone'),
+  scanDoneTitle:    $('scanDoneTitle'),
+  fileInput:    $('fileInput'),
+  pdfInput:     $('pdfInput'),
+  docChip:      $('docChip'),
+  docChipNome:  $('docChipNome'),
+  scanPreview:  $('scanPreview'),
+  formResult:   $('formResult'),
+  fNome:        $('fNome'),
+  fPlano:       $('fPlano'),
+  fConsulta:    $('fConsulta'),
+  fConsultaCard:$('fConsultaCard'),
+  etapaLabel:   $('etapaLabel'),
+  etapaBadge:   $('etapaBadge'),
+  etapaBar:     $('etapaBar'),
+  tituloCheckin:$('titulo-checkin'),
+  subCheckin:   $('subCheckin'),
+  dicaConfirmar:$('dicaConfirmar'),
+  // Triagem de gravidade (modo pronto-socorro)
+  gravCard:     $('gravCard'),
+  gravLeve:     $('gravLeve'),
+  gravModerada: $('gravModerada'),
+  gravCritica:  $('gravCritica'),
+  gravSamu:     $('gravSamu'),
+  // Tela 4
+  tituloSuporte:$('titulo-suporte'),
+  subSuporte:   $('subSuporte'),
+  ticketChip:   $('ticketChip'),
+  ticketChipWrap: $('ticketChipWrap'),
+  tipoChip:     $('tipoChip'),
+  tipoChipIcon: $('tipoChipIcon'),
+  tipoChipText: $('tipoChipText'),
+  planChip:     $('planChip'),
+  planChipText: $('planChipText'),
+  timeChip:     $('timeChip'),
+  timeChipText: $('timeChipText'),
+  btnChat:      $('btnChat'),
+  btnReiniciar: $('btnReiniciar'),
+  // Chat com IA / recepção
+  chatPanel:    $('chatPanel'),
+  chatClose:    $('chatClose'),
+  chatTitle:    $('chatTitle'),
+  chatSub:      $('chatSub'),
+  chatAvatar:   $('chatAvatar'),
+  chatCtx:      $('chatCtx'),
+  chatCtxTicket:$('chatCtxTicket'),
+  chatCtxPrio:  $('chatCtxPrio'),
+  chatCtxTempo: $('chatCtxTempo'),
+  chatMessages: $('chatMessages'),
+  chatChips:    $('chatChips'),
+  chatForm:     $('chatForm'),
+  chatInput:    $('chatInput'),
+  chatSend:     $('chatSend'),
+  // Overlays
+  inertiaModal: $('inertiaModal'),
+  inertiaYes:   $('inertiaYes'),
+  inertiaNo:    $('inertiaNo'),
+  callOverlay:  $('callOverlay'),
+  // Tela de espera do atendente
+  waitAvatar:   $('waitAvatar'),
+  waitTicket:   $('waitTicket'),
+  waitStatus:   $('waitStatus'),
+  waitTimer:    $('waitTimer'),
+  waitQueue:    $('waitQueue'),
+  waitStep1:    $('waitStep1'),
+  waitStep2:    $('waitStep2'),
+  waitStep3:    $('waitStep3'),
+  waitAttended: $('waitAttended'),
+  waitChat:     $('waitChat'),
+  waitCancel:   $('waitCancel'),
+  waitMedia:    $('waitMedia'),
+  toast:        $('toast')
+};
+
+/* --------------------------------------------------------------------------
+   3-B. PLANO DE SAÚDE — helpers de leitura/escrita do <select>
+   --------------------------------------------------------------------------
+   Ponto único de verdade para o campo de plano, usado pelo OCR, pelo
+   preenchimento manual e pela conversa com a IA.
+   -------------------------------------------------------------------------- */
+
+/** Retorna o plano atual ('' se nada selecionado). */
+function currentPlano() {
+  return el.fPlano.value || '';
+}
+
+/**
+ * Aplica um plano ao select.
+ * - Se existir opção correspondente, seleciona;
+ * - Se não existir (plano fora da lista), CRIA a opção e seleciona —
+ *   nunca devemos perder a informação só porque o catálogo é fixo.
+ * @param {string} nome — nome do plano ("unimed", "Saúde Total", …)
+ */
+function aplicarPlano(nome) {
+  if (!nome) return;
+  const alvo = String(nome).trim();
+
+  // Match tolerante: ignora acentos/caixa ("SulAmérica" vs "sulamerica").
+  const norm = (s) => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  const alvoN = norm(alvo);
+
+  // 1) igualdade exenta (normalizada); 2) casamento por contenção nos dois
+  //    sentidos — resolve "particular" vs opção "Particular (sem plano)".
+  let opt = Array.from(el.fPlano.options).find(o => norm(o.value) === alvoN);
+  if (!opt) {
+    opt = Array.from(el.fPlano.options).find(o => {
+      const v = norm(o.value);
+      return v !== '' && (v.includes(alvoN) || alvoN.includes(v));
+    });
+  }
+
+  if (!opt) {
+    // Valor vindo do OCR que não está no catálogo → cria dinamicamente.
+    const display = alvo.replace(/\b\w/g, c => c.toUpperCase()); // "unimed" → "Unimed"
+    opt = new Option(display, display);
+    el.fPlano.add(opt);
+  }
+
+  el.fPlano.value = opt.value;
+  refreshConfirm();
+  updatePlanChip();
+}
+
+/**
+ * refreshConfirm() — habilita/desabilita o "Confirmar".
+ * Regras de negócio por MODO de atendimento:
+ *   • consulta  → nome editável/preenchido E plano escolhido;
+ *                 (escanear/anexar PDF só acelera: os 2 acabam preenchidos juntos)
+ *   • pronto    → NOME + GRAVIDADE: não se recusa urgência por falta de
+ *                 convênio (plano opcional), mas a prioridade da fila só
+ *                 existe depois que o caso é qualificado na triagem.
+ */
+function refreshConfirm() {
+  const urgente = state.tipoAtendimento === 'pronto';
+  const nome    = el.fNome.value.trim();
+  const plano   = el.fPlano.value !== '';
+  const semGrav = urgente && !state.gravidade;
+
+  const ok = urgente ? (nome !== '' && !semGrav) : (nome !== '' && plano);
+  el.btnConfirmar.disabled = !ok;
+
+  if (semGrav && !nome) {
+    el.dicaConfirmar.textContent = 'Escolha a gravidade e digite seu nome para continuar.';
+  } else if (semGrav) {
+    el.dicaConfirmar.textContent = 'Escolha a gravidade do caso para liberar a triagem.';
+  } else if (!nome) {
+    el.dicaConfirmar.textContent = 'Digite seu nome (ou escaneie/anexe o documento) para continuar.';
+  } else if (!urgente && !plano) {
+    el.dicaConfirmar.textContent = 'Selecione seu plano de saúde para continuar.';
+  } else if (urgente && !plano) {
+    el.dicaConfirmar.textContent = 'Pronto para a triagem — plano de saúde opcional.';
+  } else {
+    el.dicaConfirmar.textContent = 'Confirme para concluir seu check-in.';
+  }
+}
+
+/* O nome é SEMPRE digitável: cada tecla revalida o CTA e conta como
+   interação no timer de inércia (impede o modal durante a digitação). */
+el.fNome.addEventListener('input', () => {
+  refreshConfirm();
+  bumpInertia();
+});
+
+/** Reflete o plano escolhido no chip da Tela 4. */
+function updatePlanChip() {
+  const p = currentPlano();
+  if (p) {
+    el.planChip.hidden = false;
+    el.planChipText.textContent = 'Plano: ' + p;
+  } else {
+    el.planChip.hidden = true;
+  }
+}
+
+// Mudança manual no dropdown também revalida o CTA.
+el.fPlano.addEventListener('change', () => {
+  refreshConfirm();
+  updatePlanChip();
+  bumpInertia(); // conta como interação no timer de inércia
+});
+
+/* --------------------------------------------------------------------------
+   4. NAVEGAÇÃO ENTRE ESTADOS (state machine)
+   -------------------------------------------------------------------------- */
+
+/**
+ * goTo(screen) — troca a tela visível e ajusta o status do cabeçalho.
+ * @param {'inicio'|'checkin'|'suporte'} screen
+ */
+function goTo(screen) {
+  if (!screens[screen]) return;
+
+  state.screen = screen;
+
+  // Oculta todas, exibe a alvo (mantém uma única tela no DOM visível).
+  Object.values(screens).forEach(s => { s.hidden = true; });
+  screens[screen].hidden = false;
+
+  // Feedback no header (aria-live já está no elemento).
+  el.statusText.textContent = statusDoHeader(screen);
+
+  // Rola para o topo — importante em mobile quando a tela tem scroll.
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+
+  // Regra de inércia: arma nas telas do fluxo de check-in, desarma fora.
+  if (INERTIA_SCREENS.includes(screen)) {
+    startInertia();
+  } else {
+    stopInertia();
+  }
+
+  // A Tela 2 muda de texto/estilo conforme consulta médica x pronto-socorro.
+  if (screen === 'checkin') aplicarModoTela2();
+
+  analyticsService.screenView(screen);
+}
+
+/* --------------------------------------------------------------------------
+   5. SISTEMA PROATIVO DE INÉRCIA (ANTI-TRAVAMENTO)
+   --------------------------------------------------------------------------
+   • Timer GLOBAL de 40s: reinicia com QUALQUER interação do usuário.
+   • Só está ativo no fluxo de check-in (Tela 2), conforme especificado.
+   • Ao estourar, abre o modal empático bloqueando a ação atual.
+   • "Continuar sozinho" reabre o timer; "Sim" cancela e vai à Tela 4.
+   -------------------------------------------------------------------------- */
+
+/** Texto do status no header, por tela (usado por goTo e pela espera). */
+function statusDoHeader(screen) {
+  const statusMap = {
+    inicio:   'Aguardando você',
+    checkin:  'Check-in em andamento',
+    suporte:  'Atendente a caminho'
+  };
+  return statusMap[screen] || '';
+}
+
+function startInertia() {
+  // Enquanto o usuário aguarda o atendente, a tela NÃO pode ser
+  // interrompida pelo modal de inércia (ele apareceria por cima da espera).
+  if (state.esperandoAtendente) return;
+  stopInertia();
+  state.inertiaTimer = setTimeout(onInertiaExpired, INERTIA_TIMEOUT_MS);
+}
+
+function stopInertia() {
+  if (state.inertiaTimer) {
+    clearTimeout(state.inertiaTimer);
+    state.inertiaTimer = null;
+  }
+}
+
+/** Chamado quando o usuário fica 40s sem interagir. */
+function onInertiaExpired() {
+  // Não interrompe: (a) tela fora do fluxo, (b) modal já aberto,
+  // (c) chat de IA aberto (usuário está engajado em conversa),
+  // (d) o usuário está AGUARDANDO o atendente (a espera é a tela da vez).
+  if (!INERTIA_SCREENS.includes(state.screen) ||
+      state.inertiaModalOpen || state.chatOpen || state.esperandoAtendente) return;
+  openInertiaModal();
+  analyticsService.track('inertia_triggered', { screen: state.screen });
+}
+
+function openInertiaModal() {
+  state.inertiaModalOpen = true;
+  stopInertia(); // pausa o timer enquanto o modal está aberto
+  el.inertiaModal.classList.remove('hidden');
+  el.inertiaModal.classList.add('flex');
+  // Foco no CTA principal (a11y: foco deve entrar no diálogo).
+  requestAnimationFrame(() => el.inertiaYes.focus());
+}
+
+function closeInertiaModal() {
+  state.inertiaModalOpen = false;
+  el.inertiaModal.classList.add('hidden');
+  el.inertiaModal.classList.remove('flex');
+}
+
+/** Reseta o timer em QUALQUER interação (clique, toque, teclado, scroll). */
+function bumpInertia() {
+  if (state.chatOpen) return; // chat aberto = engajado, não conta inércia
+  if (INERTIA_SCREENS.includes(state.screen) && !state.inertiaModalOpen) startInertia();
+}
+
+// Registrado uma única vez no documento — cobre todos os gestos.
+['pointerdown', 'keydown', 'wheel', 'touchstart'].forEach(evt => {
+  document.addEventListener(evt, bumpInertia, { passive: true });
+});
+
+/* --------------------------------------------------------------------------
+   6. TELA 1 — ESCOLHA DO ATENDIMENTO + A DUPLA ROTA
+   -------------------------------------------------------------------------- */
+
+/**
+ * setTipo('consulta' | 'pronto') — define o tipo de atendimento.
+ *
+ * Consequências do PRONTO-SOCORRO (urgência):
+ *   1. o aviso vermelho aparece — mas ele já NÃO promete prioridade ALTA:
+ *      a prioridade é definida pela triagem de gravidade;
+ *   2. a Rota 1 leva à MESMA tela de identificação, porém em MODO TRIAGEM
+ *      (gravidade do caso + nome editável, anexo de foto ou PDF, plano
+ *      opcional) — ver aplicarModoTela2();
+ *   3. o chamado sai com a prioridade do caso escolhido:
+ *      leve → NORMAL (verde), moderada → MÉDIA (laranja),
+ *      crítica → ALTA (vermelho + aviso do SAMU).
+ *
+ * NOTA: o estilo do selecionado vive no CSS (.tipo-btn[aria-pressed="true"]),
+ * então aqui só mexemos em atributo/texto — nunca em classes dinâmicas.
+ */
+function setTipo(tipo) {
+  const pronto = tipo === 'pronto';
+  const anterior = state.tipoAtendimento;
+  state.tipoAtendimento = pronto ? 'pronto' : 'consulta';
+
+  // Botões de escolha (estado exposto para leitores de tela).
+  el.tipoConsulta.setAttribute('aria-pressed', String(!pronto));
+  el.tipoPronto.setAttribute('aria-pressed', String(pronto));
+
+  // Aviso de urgência (usa ATRIBUTO hidden — igual a planChip/chatPanel).
+  el.tipoUrgente.hidden = !pronto;
+
+  el.tipoHint.textContent = pronto
+    ? 'Urgência · você informa a gravidade e a fila define a prioridade.'
+    : 'Atendimento com hora marcada · prioridade normal.';
+
+  // A Rota 1 muda de sentido em urgência: mesma tela, modo triagem.
+  el.btnRota1.dataset.urgente = pronto ? '1' : '0';
+  el.rota1Icon.textContent    = pronto ? '🚑' : '🚀';
+  el.rota1Label.textContent   = pronto ? 'Ir direto à triagem' : 'Fazer sozinho (Rápido)';
+  el.descRota1.textContent    = pronto
+    ? 'Identifique-se e faça a triagem de gravidade · prioridade pelo caso.'
+    : 'Escaneie seu documento e finalize em segundos.';
+
+  // O modo da Tela 2 acompanha a escolha (mesmo antes de navegar até lá).
+  aplicarModoTela2();
+
+  if (anterior !== state.tipoAtendimento) {
+    analyticsService.track('service_type_selected', { tipo: state.tipoAtendimento });
+  }
+}
+
+el.tipoConsulta.addEventListener('click', () => setTipo('consulta'));
+el.tipoPronto.addEventListener('click', () => setTipo('pronto'));
+
+/**
+ * atualizarPrioridadeTela2() — pinta a Tela 2 conforme MODO + GRAVIDADE.
+ * É quem define o data-prio de etapaBadge/etapaBar/scanArea/btnConfirmar
+ * (o <style> colore; nunca geramos classes Tailwind em runtime).
+ *
+ *   consulta            → data-prio="eletivo"  (visual padrão brand)
+ *   pronto sem escolha  → data-prio="pendente" (cinza, CTA bloqueado)
+ *   pronto leve/mod/crítica → normal / media / alta
+ */
+function atualizarPrioridadeTela2() {
+  const urgente = state.tipoAtendimento === 'pronto';
+  const g = GRAVIDADES[state.gravidade] || null;
+  const prio = urgente ? (g ? g.css : 'pendente') : 'eletivo';
+
+  el.etapaBadge.dataset.prio = prio;
+  el.etapaBadge.textContent = !urgente
+    ? 'ÚLTIMO PASSO'
+    : (g ? 'PRIORIDADE ' + g.prio : 'A DEFINIR');
+  el.etapaBar.dataset.prio     = prio;
+  el.etapaBar.dataset.urgente  = urgente ? '1' : '0';
+  el.scanArea.dataset.prio     = prio;
+  el.scanArea.dataset.urgente  = urgente ? '1' : '0';
+  el.btnConfirmar.dataset.prio = prio;
+  el.btnConfirmar.dataset.urgente = urgente ? '1' : '0';
+}
+
+/**
+ * setGravidade() — escolha da triagem (só existe no modo pronto).
+ * Cada tecla/ clique também renova o timer de inércia e registra o evento.
+ * @param {string} g — 'leve' | 'moderada' | 'critica'
+ */
+function setGravidade(g) {
+  if (state.tipoAtendimento !== 'pronto' || !GRAVIDADES[g]) return;
+  state.gravidade = g;
+
+  el.gravLeve.setAttribute('aria-pressed', String(g === 'leve'));
+  el.gravModerada.setAttribute('aria-pressed', String(g === 'moderada'));
+  el.gravCritica.setAttribute('aria-pressed', String(g === 'critica'));
+
+  // Só em caso crítico lembramos do SAMU 192 (ATRIBUTO hidden).
+  el.gravSamu.hidden = g !== 'critica';
+
+  atualizarPrioridadeTela2();
+  refreshConfirm();
+  bumpInertia();
+  analyticsService.track('triage_severity_selected', {
+    gravidade: g,
+    priority: GRAVIDADES[g].prio
+  });
+}
+
+el.gravLeve.addEventListener('click', () => setGravidade('leve'));
+el.gravModerada.addEventListener('click', () => setGravidade('moderada'));
+el.gravCritica.addEventListener('click', () => setGravidade('critica'));
+
+/**
+ * limparGravidade() — zera a triagem entre atendimentos (totem compartilhado).
+ * Chamado ao ENTRAR na Rota 1 e ao reiniciar o fluxo, nunca durante a triagem.
+ */
+function limparGravidade() {
+  state.gravidade = null;
+  el.gravLeve.setAttribute('aria-pressed', 'false');
+  el.gravModerada.setAttribute('aria-pressed', 'false');
+  el.gravCritica.setAttribute('aria-pressed', 'false');
+  el.gravSamu.hidden = true;
+}
+
+/**
+ * aplicarModoTela2() — aplica o MODO da Tela 2 (consulta x pronto-socorro).
+ * É a única fonte de verdade do texto/estilo dessa tela. Nada de classes
+ * Tailwind geradas em runtime: usamos texto + atributos `data-*`, e o <style>
+ * é quem colore (#etapaBadge/#etapaBar/#scanArea/#btnConfirmar[data-*]).
+ * ATENÇÃO: não mexe em state.gravidade — quem zera é o btnRota1 ao entrar.
+ */
+function aplicarModoTela2() {
+  const urgente = state.tipoAtendimento === 'pronto';
+
+  // Cabeçalho de etapa
+  el.etapaLabel.textContent = urgente
+    ? 'TRIAGEM · ATENDIMENTO IMEDIATO'
+    : 'ETAPA 1 DE 1 · IDENTIFICAÇÃO';
+
+  // Título + subtítulo
+  el.tituloCheckin.textContent = urgente
+    ? 'Identifique-se para a triagem'
+    : 'Escaneie seu documento';
+  el.subCheckin.innerHTML = urgente
+    ? 'Informe a <strong>gravidade</strong> do caso e digite o nome '
+      + '<strong>ou</strong> anexe o documento (foto ou PDF). Você é chamado em seguida.'
+    : 'Aponte a câmera para o <strong>cartão do convénio</strong> ou documento com foto. '
+      + 'Nós lemos os dados automaticamente.';
+
+  // O cartão de triagem só existe no modo pronto (ATRIBUTO hidden).
+  el.gravCard.hidden = !urgente;
+
+  // Em urgência não existe consulta marcada → o card some (ATRIBUTO hidden).
+  el.fConsultaCard.hidden = urgente;
+
+  // CTA finalizadora (também restaura o rótulo após um envio em andamento)
+  el.btnConfirmar.textContent = urgente
+    ? 'Enviar para a triagem ✓'
+    : 'Confirmar e Finalizar ✓';
+
+  // Cores/badge conforme modo + gravidade já escolhida (se houver)
+  atualizarPrioridadeTela2();
+
+  // Revalida com as regras do modo atual (nome só x nome + plano).
+  refreshConfirm();
+}
+
+/**
+ * setPassoEspera(step, fase, sub) — atualiza um item da timeline de espera.
+ * @param {HTMLElement} step  — <li> com data-step
+ * @param {'pending'|'active'|'done'} fase
+ * @param {string} [sub]      — texto secundário do passo
+ */
+function setPassoEspera(step, fase, sub) {
+  step.dataset.step = fase;
+  if (sub !== undefined) step.querySelector('.wait-sub').textContent = sub;
+  const dot = step.querySelector('.wait-dot');
+  dot.textContent = fase === 'done' ? '✓' : (fase === 'active' ? '…' : dot.dataset.n);
+}
+
+/** Zera todos os timers/contador da tela de espera (chamar em todo saída). */
+function limparEspera() {
+  (state.waitTimers || []).forEach(clearTimeout);
+  state.waitTimers = [];
+  if (state.waitTicker) {
+    clearInterval(state.waitTicker);
+    state.waitTicker = null;
+  }
+}
+
+/**
+ * chamarRecepcao(reason) — abre a TELA DE ESPERA e só resolve quando o
+ * atendente chegar (automático) ou quando o usuário confirma/cancela.
+ *
+ * Caminho compartilhado pela Rota 2, pelo "Sim, chamar atendente" do modal
+ * de inércia e pelo CTA de escalonamento do chat — os três mostram a MESMA
+ * sala de espera, com:
+ *   • nº do chamado emitido;
+ *   • contador de tempo parado + quantas pessoas estão na frente;
+ *   • timeline de 3 passos (enviado → designado → a caminho);
+ *   • saídas sempre disponíveis (confirmar / falar com a IA / cancelar).
+ *
+ * PONTO DE INTEGRAÇÃO REAL — em produção esta sequência é substituída por
+ * um WebSocket/SSE (ex.: wss://api.../v1/queue/{ticket}) que emite os
+ * eventos ASSIGNED {agentName} e ARRIVED. Aqui é apenas simulado.
+ *
+ * @param {string} reason — motivo/report auditável do chamado
+ * @returns {Promise<void>} resolve ao final da espera
+ */
+function chamarRecepcao(reason) {
+  return new Promise(resolve => {
+    // Se já houver uma espera em andamento, não cria uma segunda.
+    if (state.esperandoAtendente) return resolve();
+
+    limparEspera();
+    state.esperandoAtendente = true;
+    state.waitResolve = resolve;
+    state.waitTicket = null;
+    stopInertia(); // a espera substitui o modal de inércia
+
+    // --- RESET VISUAL ------------------------------------------------
+    el.waitTicket.textContent = 'Emitindo chamado…';
+    el.waitTimer.textContent = '00:00';
+    el.waitQueue.textContent = '—';
+    el.waitStatus.textContent = 'Enviando seu chamado para a recepção…';
+    el.waitAvatar.textContent = '🙋‍♀️';
+    // Tempo médio DEPENDE DA GRAVIDADE — nunca o mesmo número para todos.
+    const tmEspera = tempoMedioAtendimento();
+    el.waitMedia.textContent = tmEspera.texto;
+    el.waitMedia.parentElement.title = tmEspera.nota;
+    el.waitAttended.disabled = true; // libera só quando o chamado existir
+    setPassoEspera(el.waitStep1, 'active', 'Conectando com o sistema da fila…');
+    setPassoEspera(el.waitStep2, 'pending', 'Procurando alguém livre no balcão…');
+    setPassoEspera(el.waitStep3, 'pending', 'Ainda na fila de espera…');
+
+    el.callOverlay.classList.remove('hidden');
+    el.callOverlay.classList.add('flex');
+    el.statusText.textContent = 'Chamando recepção…';
+    analyticsService.track('human_call_started', { reason });
+    // Foco no diálogo (WCAG 2.4.3) — nunca num botão ainda desabilitado.
+    requestAnimationFrame(() => el.callOverlay.focus());
+
+    // --- CONTADOR DE ESPERA (o relógio do usuário) --------------------
+    state.waitSec = 0;
+    state.waitTicker = setInterval(() => {
+      state.waitSec += 1;
+      const mm = String(Math.floor(state.waitSec / 60)).padStart(2, '0');
+      const ss = String(state.waitSec % 60).padStart(2, '0');
+      el.waitTimer.textContent = mm + ':' + ss;
+    }, 1000);
+
+    // --- CRONOGRAMA (simulado; aqui entraria o WebSocket) --------------
+    const T = (ms, fn) => state.waitTimers.push(setTimeout(fn, ms));
+
+    queueService.dispatch(reason).then(res => {
+      if (!state.esperandoAtendente) return; // espera já foi cancelada
+      state.waitTicket = res.ticket;
+      el.waitTicket.textContent = 'Chamado ' + res.ticket;
+      el.waitAttended.disabled = false;
+      setPassoEspera(el.waitStep1, 'done', 'A recepção já recebeu o seu chamado.');
+      setPassoEspera(el.waitStep2, 'active', 'Procurando alguém livre no balcão…');
+      el.waitStatus.textContent = 'Chamado ' + res.ticket + ' registrado. Estamos chamando alguém do balcão…';
+      el.waitQueue.textContent = '3';
+    });
+
+    T(2200, () => {                      // → ASSIGNED
+      if (!state.esperandoAtendente) return;
+      el.waitAvatar.textContent = '🚶‍♀️';
+      setPassoEspera(el.waitStep2, 'done', 'Ana Paula foi designada ao seu chamado.');
+      setPassoEspera(el.waitStep3, 'active', 'Saiu do balcão e está a caminho.');
+      el.waitStatus.textContent = 'Ana Paula foi designada e já está a caminho 🚶‍♀️';
+      el.waitQueue.textContent = '1';
+    });
+
+    T(4400, () => {                      // → EN_ROUTE (fila esvaziou)
+      if (!state.esperandoAtendente) return;
+      setPassoEspera(el.waitStep3, 'active', 'Chegando ao seu lado — fique onde está.');
+      el.waitStatus.textContent = 'Ana está quase chegando 👋 Ninguém mais na sua frente.';
+      el.waitQueue.textContent = '0';
+    });
+
+    T(6200, () => {                      // → ARRIVED
+      if (!state.esperandoAtendente) return;
+      setPassoEspera(el.waitStep3, 'done', 'Ana Paula chegou até você.');
+      el.waitAvatar.textContent = '🤝';
+      el.waitStatus.textContent = 'Atendente chegou! Dirija-se ao balcão B 👋';
+    });
+
+    T(7000, () => encerrarEspera(true));  // → Tela 4 (suporte ativo)
+  });
+}
+
+/**
+ * encerrarEspera(chegou) — fecha a sala de espera.
+ * @param {boolean} chegou — true = atendente atendeu (→ Tela 4);
+ *                           false = usuário cancelou (volta de onde saiu)
+ */
+function encerrarEspera(chegou) {
+  if (!state.esperandoAtendente) return;
+
+  const resolve = state.waitResolve;
+  state.waitResolve = null;
+  limparEspera();
+
+  el.callOverlay.classList.add('hidden');
+  el.callOverlay.classList.remove('flex');
+  state.esperandoAtendente = false;
+
+  if (chegou) {
+    state.ticket = state.waitTicket;
+    atualizarChatRecepcao();
+    analyticsService.track('human_call_arrived', { ticket: state.waitTicket });
+    goTo('suporte');
+  } else {
+    analyticsService.track('human_call_cancelled', { ticket: state.waitTicket });
+    state.ticket = null;   // chamado abandonado não pode aparecer na Tela 4
+    el.statusText.textContent = statusDoHeader(state.screen);
+    startInertia();        // retoma a inércia (aqui a tela já está "viva")
+    showToast('Chamado cancelado. Continuamos por aqui se precisar. 🙂', 3600);
+  }
+
+  if (resolve) resolve();
+}
+
+el.btnRota1.addEventListener('click', () => {
+  // AMBOS os tipos passam pela mesma tela de identificação:
+  //  • consulta → nome + plano (check-in rápido);
+  //  • pronto   → gravidade + nome editável + foto/PDF, plano opcional.
+  analyticsService.track('route_selected', {
+    route: state.tipoAtendimento === 'pronto' ? 'autonomous_urgent' : 'autonomous'
+  });
+  // Nova triagem a cada usuário: ninguém herda a gravidade do anterior.
+  limparGravidade();
+  goTo('checkin');
+});
+
+/** ROTA 2: chamado humano imediato → TELA DE ESPERA → Tela de sucesso. */
+el.btnRota2.addEventListener('click', async () => {
+  analyticsService.track('route_selected', { route: 'human' });
+  await chamarRecepcao('ROTA_2_HUMAN_BUTTON');
+});
+
+/* --- Ações da TELA DE ESPERA DO ATENDENTE ---------------------------
+     O usuário nunca fica preso: pode confirmar que já foi atendido,
+       conversar com a IA por cima, ou cancelar o chamado. */
+el.waitAttended.addEventListener('click', () => encerrarEspera(true));
+
+el.waitChat.addEventListener('click', () => {
+  analyticsService.track('wait_chat_opened', { ticket: state.waitTicket });
+  openChat(); // chat fica em z acima (fixed) e pausa a inércia
+});
+
+el.waitCancel.addEventListener('click', () => encerrarEspera(false));
+
+/* --------------------------------------------------------------------------
+   7. TELA 2 — CHECK-IN RÁPIDO
+   --------------------------------------------------------------------------
+   Três caminhos de entrada, propositalmente separados:
+   A) btnScan    → spec literal: clique → loader de 2s → autofill (demo);
+   B) btnCapture → captura REAL pela câmera/galeria nativa e OCR simulado.
+   C) btnPdf     → anexo do ARQUIVO .pdf já digitalizado do documento.
+   -------------------------------------------------------------------------- */
+
+/** Tamanho máximo aceito para o PDF anexado (evita travar o totem). */
+const MAX_PDF_BYTES = 15 * 1024 * 1024; // 15 MB
+
+/**
+ * ehPdfValido(file) — valida o anexo antes de submeter ao leitor.
+ * Aceita `application/pdf` ou extensão `.pdf` (alguns SOs enviam type vazio).
+ * Mostra o motivo da recusa em toast — nunca falha em silêncio.
+ * PONTO DE INTEGRAÇÃO REAL: no backend, adicionar também verificação de
+ * assinatura binária (%PDF-), limite de páginas e scan de malware.
+ * @param {File|null} file
+ * @returns {boolean}
+ */
+function ehPdfValido(file) {
+  if (!file) return false;
+  const nome = (file.name || '').toLowerCase();
+  const parecePdf = file.type === 'application/pdf' || nome.endsWith('.pdf');
+
+  if (!parecePdf) {
+    showToast('⚠️ Isso não é um PDF. Use "Usar foto real" para imagens.', 4200);
+    return false;
+  }
+  if (file.size > MAX_PDF_BYTES) {
+    showToast('⚠️ PDF acima de 15 MB. Envie um arquivo menor.', 4200);
+    return false;
+  }
+  return true;
+}
+
+/** A) CTA PRINCIPAL — fluxo exatamente como especificado (sem diálogo nativo). */
+el.btnScan.addEventListener('click', () => {
+  if (state.scanning) return;  // ignora toques durante o OCR
+  runOcr(null, 'demo');        // null = modo demonstração (2s)
+});
+
+/** B) CAPTURA REAL — abre o seletor nativo de imagem. */
+el.btnCapture.addEventListener('click', () => {
+  if (state.scanning) return;
+  openCapture();
+});
+
+/** C) ANEXAR PDF — arquivo .pdf já digitalizado (assinatura/escaneamento). */
+el.btnPdf.addEventListener('click', () => {
+  if (state.scanning) return;  // ignora toques durante a leitura
+  abrirSeletor(el.pdfInput, (f) => {
+    // cancelou / recusado → não faz nada (mantém o que já estava preenchido).
+    if (!ehPdfValido(f)) return;
+    runOcr(f, 'pdf');
+  });
+});
+
+/**
+ * abrirSeletor(input, aoEscolher) — abre um <input type="file"> nativo e
+ * normaliza os 3 desfechos possíveis do diálogo do SO:
+ *   1) arquivo escolhido  → aoEscolher(file);
+ *   2) evento 'cancel'     → usuário desistiu → aoEscolher(null);
+ *   3) navegador antigo    → sem 'cancel': heurística por volta de foco.
+ * Usado pelos DOIS anexos: foto (câmera/galeria) e PDF.
+ *
+ * @param {HTMLInputElement} input     — input oculto de arquivo
+ * @param {(f: File|null) => void} aoEscolher — callback do desfecho
+ */
+function abrirSeletor(input, aoEscolher) {
+  let settled = false;
+
+  const finish = (file) => {
+    if (settled) return;
+    settled = true;
+    input.removeEventListener('change', onChange);
+    input.removeEventListener('cancel', onCancel);
+    window.removeEventListener('focus', onFocus);
+    aoEscolher(file);
+  };
+
+  function onChange() {
+    const f = input.files && input.files[0];
+    if (f) finish(f); // caso contrário, deixa o 'cancel'/foco decidir
+  }
+  function onCancel() { finish(null); }
+  function onFocus() {
+    // Heurística para navegadores sem o evento 'cancel' (Chrome <113, Safari <16.4):
+    // ao voltar o foco à janela, aguardamos 700ms (tempo do diálogo fechar)
+    // e seguimos com null caso nenhum arquivo tenha sido selecionado.
+    setTimeout(() => finish((input.files && input.files[0]) || null), 700);
+  }
+
+  input.addEventListener('change', onChange);
+  input.addEventListener('cancel', onCancel);
+  if (!('oncancel' in input)) window.addEventListener('focus', onFocus);
+
+  // Reset para permitir escolher o MESMO arquivo de novo em re-escaneamentos.
+  input.value = '';
+  input.click();
+}
+
+/** Foto: câmera traseira no mobile (capture="environment") / galeria no desktop. */
+function openCapture() {
+  // Desistiu do diálogo → segue em modo demonstração (fluxo spec literal).
+  abrirSeletor(el.fileInput, (f) => runOcr(f, f ? 'foto' : 'demo'));
+}
+
+/**
+ * runOcr(file, kind) — orquestra loading → OCR → preenchimento → sucesso.
+ * @param {File|null} file — arquivo lido (null = modo demonstração)
+ * @param {'demo'|'foto'|'pdf'} kind — origem da leitura (define textos/preview)
+ */
+async function runOcr(file, kind = 'demo') {
+  if (state.scanning) return;
+  const pdf = kind === 'pdf';
+
+  // Re-escanear: limpa a tentativa anterior (não apaga nada do usuário
+  // enquanto ele só escolhe — reset acontece aqui, dentro da leitura).
+  if (state.docScanned) resetScanUI();
+  state.scanning = true;
+  state.docKind = kind;
+
+  // --- UI: estado de carregamento ---------------------------------------
+  el.btnScan.disabled = true;
+  el.btnScan.classList.add('opacity-60', 'cursor-wait');
+  el.btnPdf.disabled = true;
+  el.scanIdle.hidden = true;
+  el.scanDone.hidden = true;
+  el.scanLoading.hidden = false;
+  el.scanLoadingTitle.textContent = pdf
+    ? 'Lendo PDF anexado…'
+    : 'Lendo documento via OCR…';
+  el.scanLoadingSub.textContent = pdf
+    ? 'Extraindo nome e convênio do arquivo PDF'
+    : 'Extraindo nome, convênio e horário da consulta';
+  el.statusText.textContent = pdf ? 'Lendo PDF…' : 'Lendo documento…';
+
+  if (file) {
+    if (pdf) {
+      // PDF não é imagem: NÃO jogamos no <img>. Mostramos o chip com o
+      // nome do arquivo (e revogamos a foto anterior, se houver).
+      if (state.previewUrl) { URL.revokeObjectURL(state.previewUrl); state.previewUrl = null; }
+      el.scanPreview.hidden = true;
+      el.scanPreview.removeAttribute('src');
+      const mb = (file.size / (1024 * 1024));
+      el.docChipNome.textContent = (file.name || 'documento.pdf') +
+        ' · ' + (mb < 1 ? Math.max(1, Math.round(file.size / 1024)) + ' KB'
+                          : mb.toFixed(1) + ' MB');
+      el.docChip.hidden = false;
+    } else {
+      // Pré-visualização real da FOTO, com ObjectURL revogável (LGPD).
+      if (state.previewUrl) URL.revokeObjectURL(state.previewUrl);
+      state.previewUrl = URL.createObjectURL(file);
+      el.scanPreview.src = state.previewUrl;
+      el.scanPreview.hidden = false;
+    }
+  }
+
+  try {
+    // --- Chamada ao serviço (2s simulados dentro do serviço) -------------
+    const data = await ocrService.scan(file, kind);
+
+    // --- Preenchimento automático dos campos ----------------------------
+    // O nome segue DIGITÁVEL: o OCR só sugere um valor inicial.
+    el.fNome.value     = data.nome;
+    aplicarPlano(data.convenio); // select de plano (OCR → dropdown)
+    if (state.tipoAtendimento !== 'pronto') {
+      el.fConsulta.value = data.consulta; // em urgência não existe consulta marcada
+    }
+
+    // Sinaliza "preenchido" (guarda informativa do bloco de dados).
+    el.formResult.dataset.filled = 'true';
+    state.docScanned = true;
+
+    // --- Transição de UI: sucesso ----------------------------------------
+    el.scanLoading.hidden = true;
+    el.scanDone.hidden = false;
+    el.scanDoneTitle.textContent = pdf
+      ? 'PDF anexado com sucesso'
+      : 'Documento lido com sucesso';
+
+    el.btnScan.disabled = false;
+    el.btnScan.classList.remove('opacity-60', 'cursor-wait');
+    el.btnScan.innerHTML = '🔄 Escanear novamente';
+    el.btnPdf.disabled = false;
+
+    // Libera a ação finalizadora (revalida nome/segundo modo + plano).
+    refreshConfirm();
+    el.statusText.textContent = 'Documento identificado ✓';
+
+    showToast(pdf    ? '✅ PDF anexado! Confira os dados.'
+              : file ? '✅ Documento lido! Confira os dados.'
+                     : '✅ Leitura concluída (modo demonstração).');
+    analyticsService.track('ocr_success', {
+      confidence: data.confidence,
+      mode: kind
+    });
+
+  } catch (err) {
+    // --- Tratamento de erro (rede/API indisponível, imagem ilegível) -----
+    console.error('[OCR]', err);
+    resetScanUI();
+    showToast('⚠️ Não conseguimos ler o documento. Tente novamente, anexe o PDF ou digite o nome.', 4600);
+    analyticsService.track('ocr_failure', { error: String(err) });
+  } finally {
+    state.scanning = false;
+  }
+}
+
+/** Restaura a UI do scanner para o estado ocioso (e libera a memória da foto). */
+function resetScanUI() {
+  state.docScanned = false;
+  state.docKind = null;
+  state.scanning = false;
+  el.scanIdle.hidden = false;
+  el.scanLoading.hidden = true;
+  el.scanDone.hidden = true;
+
+  // Pré-visualização: esconde e revoga a ObjectURL (evita vazamento de memória
+  // e garante que a foto do documento não permaneça no dispositivo).
+  el.scanPreview.hidden = true;
+  el.scanPreview.removeAttribute('src');
+  if (state.previewUrl) {
+    URL.revokeObjectURL(state.previewUrl);
+    state.previewUrl = null;
+  }
+  el.fileInput.value = '';
+  el.pdfInput.value = '';
+
+  // Chip do arquivo PDF anexado (ATRIBUTO hidden — igual aos outros toggles).
+  el.docChip.hidden = true;
+  el.docChipNome.textContent = 'documento.pdf';
+
+  // Textos padrão do carregamento (eram sobrescritos no modo PDF).
+  el.scanLoadingTitle.textContent = 'Lendo documento via OCR…';
+  el.scanLoadingSub.textContent   = 'Extraindo nome, convênio e horário da consulta';
+  el.scanDoneTitle.textContent    = 'Documento lido com sucesso';
+
+  // Nome volta a VAZIO (não "—"): o campo é digitável do zero.
+  el.fNome.value = '';
+  el.fPlano.value = '';
+  el.fConsulta.value = '—';
+  el.formResult.dataset.filled = 'false';
+
+  el.btnScan.disabled = false;
+  el.btnScan.classList.remove('opacity-60', 'cursor-wait');
+  el.btnScan.innerHTML = '📷 Escanear documento';
+  el.btnPdf.disabled = false;
+
+  refreshConfirm();
+  el.statusText.textContent = 'Check-in em andamento';
+}
+
+/**
+ * Fallback de acessibilidade — "Digitar manualmente".
+ * O formulário JÁ é editável (o nome aceita digitação livre); este link só
+ * direciona o foco para o campo, garantindo o caminho manual obrigatório
+ * em saúde (não depende de OCR/câmera/PDF estar disponível).
+ */
+el.btnManual.addEventListener('click', () => {
+  el.fNome.focus();
+  el.fNome.select();
+  showToast('✍️ Digite o nome direto no campo e escolha o plano — sem depender do OCR.', 4200);
+  analyticsService.track('manual_entry_used');
+});
+
+/** AÇÃO FINALIZADORA — Confirmar e Finalizar (ou "Enviar para a triagem"). */
+el.btnConfirmar.addEventListener('click', async () => {
+  if (el.btnConfirmar.disabled) return;
+  const urgente = state.tipoAtendimento === 'pronto';
+  const g = GRAVIDADES[state.gravidade] || null;
+
+  el.btnConfirmar.disabled = true;
+  el.btnConfirmar.textContent = urgente ? 'Enviando para a triagem…' : 'Enviando…';
+  el.statusText.textContent = urgente ? 'Acionando a triagem…' : 'Finalizando check-in…';
+
+  /* PONTO DE INTEGRAÇÃO REAL — backend de agendamento/triagem:
+     POST /v1/checkins  { patientId, appointmentId, status: 'ARRIVED', ts }
+     → registra a chegada do paciente e libera a senha na fila interna.
+     Em urgência o payload leva { priority, severity, route: 'TRIAGE' } —
+     priority NÃO é fixa: vem da GRAVIDADE escolhida na triagem. */
+  await new Promise(r => setTimeout(r, 900));
+
+  /* PONTO DE INTEGRAÇÃO REAL — fila da recepção (ver queueService).
+     O reason registra a severidade para auditoria/telemetria da fila. */
+  const res = await queueService.dispatch(
+    urgente
+      ? 'PRONTO_SOCORRO_TRIAGE_' + (state.gravidade || 'NAO_INFORMADA').toUpperCase()
+      : 'CHECKIN_CONFIRMED'
+  );
+
+  // Reset para o próximo usuário (dispositivo compartilhado / totem).
+  // ATENÇÃO: state.gravidade só zera DEPOIS que a Tela 4 renderizar os
+  // chips — quem limpa é limparGravidade(), na próxima Rota 1/reinício.
+  resetScanUI();
+  aplicarModoTela2();
+
+  if (urgente) {
+    // Pronto-socorro: a senha de TRIAGEM sai com a prioridade do CASO
+    // escolhido (NORMAL / MÉDIA / ALTA) — nunca é automática.
+    state.ticket = res.ticket;
+    atualizarChatRecepcao(); // chat da recepção abriu antes do nº sair?
+    showToast(urgente && g && g.prio === 'ALTA'
+      ? '🚑 Triagem acionada — prioridade ALTA.'
+      : `🚑 Triagem acionada — ${g ? g.ticket.toLowerCase() : 'prioridade a definir'}.`);
+    analyticsService.track('triage_issued', {
+      priority: g ? g.prio : 'INDIFINIDA',
+      gravidade: state.gravidade
+    });
+    goTo('suporte');
+    return;
+  }
+
+  showToast('🎉 Check-in concluído! Dirija-se à sala de espera.');
+
+  // Volta ao estado inicial — pronto para novo atendimento.
+  goTo('inicio');
+});
+
+/** Atalho de segurança: sair do fluxo autônomo e pedir ajuda humana.
+ *  Também passa pela TELA DE ESPERA — o usuário vê que alguém foi chamado. */
+el.btnVoltarAjuda.addEventListener('click', async () => {
+  limparGravidade();
+  await chamarRecepcao('ABANDON_CHECKIN');
+});
+
+/* --------------------------------------------------------------------------
+   8. MODAL DE INÉRCIA — ações
+   -------------------------------------------------------------------------- */
+
+/** Opção A → TELA DE ESPERA DO ATENDENTE → tela de suporte ativo. */
+el.inertiaYes.addEventListener('click', async () => {
+  const screenAtCall = state.screen; // captura ANTES de abrir a espera
+  closeInertiaModal();
+
+  analyticsService.track('inertia_help_accepted', { screen: screenAtCall });
+  await chamarRecepcao('INERTIA_HELP_ACCEPTED');
+});
+
+/** Opção B → fecha e retoma o fluxo (timer reinicia por bumpInertia). */
+el.inertiaNo.addEventListener('click', () => {
+  const previousScreen = state.screen; // captura ANTES de fechar (fecha zera o flag)
+  closeInertiaModal();
+  showToast('Tudo bem! Estamos por aqui se precisar. 🙂', 3000);
+  analyticsService.track('inertia_help_declined', { screen: previousScreen });
+  startInertia(); // reinicia a contagem de 40s
+
+  // Devolve o foco ao ponto de interação da tela atual (a11y WCAG 2.4.3).
+  // Na tela de check-in focamos o CTA de escanear; na inicial, a rota autônoma.
+  const focusTarget = previousScreen === 'checkin' ? el.btnScan : el.btnRota1;
+  requestAnimationFrame(() => focusTarget.focus());
+});
+
+// Fechar via clique fora (não é obrigatório — é empático —, mas evita "presa").
+el.inertiaModal.addEventListener('click', (e) => {
+  if (e.target === el.inertiaModal) {
+    // Ignora: o modal de inércia exige decisão explícita do usuário.
+    // Mantido como no-op intencional para evitar perda de contexto clínico.
+  }
+});
+
+// Esc fecha (teclado) — acessibilidade WCAG 2.1.1.
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && state.inertiaModalOpen) {
+    el.inertiaNo.click();
+  }
+});
+
+/* --------------------------------------------------------------------------
+   9. CHAT DE AJUDA COM IA
+   --------------------------------------------------------------------------
+   • Renderização de bolhas (usuário / assistente) com suporte a **negrito**
+     simples via markdown leve (escape HTML antes de aplicar).
+   • Indicador "digitando…" enquanto a IA responde.
+   • Chips de resposta rápida (inclui atalho de plano de saúde).
+   • CTA inline "Acionar recepção" quando a IA entende pedido de humano.
+   • Pausa o timer de inércia enquanto aberto (usuário está engajado).
+   -------------------------------------------------------------------------- */
+
+/** Escapa HTML do usuário antes de qualquer render (proteção XSS).
+ *  split/join em vez de regex para aspas: evita quote dentro de literal
+ *  de regex (ambíguo para parsers simples e para minificadores antigos). */
+function escapeHtml(str) {
+  return String(str)
+    .split('&').join('&amp;')
+    .split('<').join('&lt;')
+    .split('>').join('&gt;')
+    .split('"').join('&quot;')
+    .split("'").join('&#39;');
+}
+
+/** Markdown leve: **negrito** → <strong>. Só após o escape. */
+function renderRich(text) {
+  return escapeHtml(text)
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\n/g, '<br>');
+}
+
+/** Adiciona uma bolha na conversa. */
+function addBubble(from, text, { cta = false } = {}) {
+  const wrap = document.createElement('div');
+  wrap.className = from === 'user' ? 'flex justify-end' : 'flex justify-start';
+
+  const bubble = document.createElement('div');
+  bubble.className = from === 'user'
+    ? 'max-w-[85%] rounded-2xl rounded-br-md bg-brand-700 px-4 py-2.5 text-[14px] leading-relaxed text-white shadow-sm'
+    : 'max-w-[85%] rounded-2xl rounded-bl-md border border-slate-200 bg-white px-4 py-2.5 text-[14px] leading-relaxed text-slate-800 shadow-sm';
+  bubble.innerHTML = renderRich(text);
+  wrap.appendChild(bubble);
+
+  // CTA: botão de escalonamento para atendimento humano.
+  if (cta) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn-tactile mt-2 w-full rounded-xl bg-brand-700 px-4 py-3 text-[14px] font-extrabold text-white shadow hover:bg-brand-800 focus:outline-none focus-visible:ring-4 focus-visible:ring-brand-400';
+    btn.textContent = '🙋 Acionar a recepção agora';
+    btn.addEventListener('click', escalateFromChat);
+    // Empilha bolha + botão verticalmente.
+    const col = document.createElement('div');
+    col.className = 'flex max-w-[85%] flex-col';
+    col.appendChild(bubble);
+    col.appendChild(btn);
+    wrap.innerHTML = '';
+    wrap.appendChild(col);
+  }
+
+  el.chatMessages.appendChild(wrap);
+  el.chatMessages.scrollTop = el.chatMessages.scrollHeight;
+}
+
+/** Indicador de "digitando…". Retorna função para removê-lo. */
+function showTyping() {
+  const wrap = document.createElement('div');
+  wrap.className = 'flex justify-start';
+  wrap.dataset.typing = '1';
+  wrap.innerHTML =
+    '<div class="flex items-center gap-1.5 rounded-2xl rounded-bl-md border border-slate-200 bg-white px-4 py-3.5 shadow-sm">' +
+      '<span class="h-2 w-2 animate-bounce rounded-full bg-slate-400 [animation-delay:-.3s]"></span>' +
+      '<span class="h-2 w-2 animate-bounce rounded-full bg-slate-400 [animation-delay:-.15s]"></span>' +
+      '<span class="h-2 w-2 animate-bounce rounded-full bg-slate-400"></span>' +
+    '</div>';
+  el.chatMessages.appendChild(wrap);
+  el.chatMessages.scrollTop = el.chatMessages.scrollHeight;
+  return () => wrap.remove();
+}
+
+/** Chips de resposta rápida. */
+/** Resumo da prioridade em texto corrido (usado no chat da recepção). */
+function resumoPrioridade() {
+  const urgente = state.tipoAtendimento === 'pronto';
+  const g = GRAVIDADES[state.gravidade];
+  if (!urgente) return 'prioridade normal';
+  return g ? `prioridade ${g.prio.toLowerCase()}` : 'prioridade a definir';
+}
+
+/** Preenche a faixa de contexto (chamado + prioridade + tempo médio). */
+function preencherCtxChat() {
+  const t = tempoMedioAtendimento();
+  el.chatCtxTicket.textContent = 'Chamado ' + (state.ticket || '#—');
+  el.chatCtxPrio.textContent = resumoPrioridade().replace(/^prioridade/, 'Prioridade');
+  el.chatCtxTempo.textContent = '⏱ ' + t.texto;
+}
+
+/** CORRIDA: o nº do chamado só sai ~900ms depois do envio. Se a conversa da
+ *  recepção abrir nesse intervalo, a faixa e a bolha de boas-vindas ficariam
+ *  com "#—". Quando o ticket chega, realimenta os dois. */
+function atualizarChatRecepcao() {
+  if (!state.chatOpen || !modoRecepcao() || !state.ticket) return;
+  preencherCtxChat();
+
+  // Varre as DIVs na ordem do documento (pai antes do filho) e guarda a MAIS
+  // PROFUNDA com "#—" — a bolha. Ignora a que tiver botão (CTA) dentro, para
+  // não recriar o nó e perder o listener do botão.
+  let alvo = null;
+  [].slice.call(el.chatMessages.querySelectorAll('div')).forEach(b => {
+    if (b.textContent.indexOf('chamado #—') >= 0 && !b.querySelector('button')) alvo = b;
+  });
+  if (alvo) {
+    alvo.innerHTML = alvo.innerHTML.replace('#—', state.ticket);
+    el.chatMessages.scrollTop = el.chatMessages.scrollHeight;
+  }
+}
+
+/** Quem está do outro lado da conversa neste momento. */
+function modoRecepcao() { return state.chatMode === 'recepcao'; }
+
+function renderChips() {
+  const chips = modoRecepcao()
+    ? [
+        '⏱ Quanto tempo de espera?', // mesma semântica; resposta vem da gravidade
+        'Qual é minha consulta?',
+        'Onde fica a sala de espera?',
+        '🙋 Chamar alguém ao balcão',   // aciona a recepção presencial
+        '🤖 Prefiro falar com a IA'     // devolve o controle para a IA
+      ]
+    : [
+        'Quais planos vocês aceitam?',
+        'Meu plano é Unimed',        // demonstra o preenchimento conversacional
+        'Qual é minha consulta?',
+        'Como funciona o pronto-socorro?', // consulta médica x urgência
+        '⏱ Quanto tempo de espera?',      // tempo médio DEPENDE da gravidade
+        'Onde fica a sala de espera?',
+        'Preciso de ajuda'
+      ];
+  el.chatChips.innerHTML = '';
+  chips.forEach(label => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'shrink-0 whitespace-nowrap rounded-full border border-brand-300 bg-white px-3.5 py-2 text-[12.5px] font-semibold text-brand-800 transition hover:bg-brand-50 focus:outline-none focus-visible:ring-4 focus-visible:ring-brand-400';
+    b.textContent = label;
+    b.addEventListener('click', () => {
+      // Chips de ação (não são mensagens do paciente).
+      if (label.indexOf('🤖') === 0) { openChat('ia'); return; }        // voltar p/ IA
+      if (label.indexOf('🙋') === 0) { chamarAoBalcao(); return; }      // presencial
+      sendChat(label);
+    });
+    el.chatChips.appendChild(b);
+  });
+}
+
+/** Chamada da recepção: paciência acabou → aciona o balcão (sala de espera). */
+async function chamarAoBalcao() {
+  closeChat();
+  showToast('🙋 Recepção acionada pelo chat.');
+  await chamarRecepcao('RECEPTION_CHAT');
+}
+
+/** Envio de mensagem (chips e formulário passam por aqui). */
+async function sendChat(text) {
+  const msg = (text || '').trim();
+  if (!msg) return;
+
+  addBubble('user', msg);
+  el.chatInput.value = '';
+  el.chatChips.innerHTML = ''; // limpa chips durante o processamento
+  analyticsService.track('chat_sent', { len: msg.length });
+
+  const hideTyping = showTyping();
+
+  // No modo RECEPÇÃO quem responde é uma pessoa: digita um pouco mais devagar.
+  if (modoRecepcao()) await new Promise(r => setTimeout(r, 700));
+
+  const context = {
+    nome:     el.fNome.value,
+    convenio: currentPlano(),
+    consulta: el.fConsulta.value,
+    screen:   state.screen
+  };
+
+  const reply = await aiService.reply(msg, context);
+  hideTyping();
+
+  // Escalonamento: se a IA detectou pedido de humano, oferece CTA.
+  const wantsHuman = /(atendente|humano|recepcao|falar com alguem|ajuda)/i.test(
+    msg.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  ) && !/^(oi|ola|bom dia|boa tarde|boa noite)/.test(msg.trim().toLowerCase());
+
+  /* CTA "acionar recepção" só quando quem responde é a IA. Conversando com a
+     RECEPÇÃO o próximo passo é o chip 🙋 (chamar ao balcão). */
+  addBubble('bot', reply, { cta: wantsHuman && !modoRecepcao() });
+  renderChips(); // restaura chips
+  el.chatInput.focus();
+}
+
+/**
+ * Escalonamento a partir do chat → PROTOCOLO ABERTO → TELA DE ESPERA → Tela 4.
+ * Antes de fechar o chat o paciente vê o nº do protocolo e o TEMPO MÉDIO
+ * de atendimento calculado PELA GRAVIDADE do caso (nunca um número fixo).
+ */
+async function escalateFromChat() {
+  analyticsService.track('chat_escalated');
+  el.chatChips.innerHTML = '';
+
+  const tm = tempoMedioAtendimento();
+  addBubble('bot',
+    `✅ **Protocolo aberto** com a recepção.\n\n` +
+    `⏱ Tempo médio de atendimento para o seu caso: **${tm.texto}**\n` +
+    `${tm.nota.charAt(0).toUpperCase() + tm.nota.slice(1)}.\n\n` +
+    `Já te chamando — pode fechar o chat que a tela de espera continua aqui.`);
+  el.chatMessages.scrollTop = el.chatMessages.scrollHeight;
+
+  // Tempo de leitura antes de levar para a sala de espera.
+  await new Promise(r => setTimeout(r, 2600));
+
+  closeChat();
+  showToast('🙋 Recepção acionada pelo chat.');
+  await chamarRecepcao('AI_CHAT_ESCALATION');
+}
+
+/** Abre o painel do chat.
+ *  NOTA: o chat usa o ATRIBUTO `hidden` (não a classe `.hidden` do Tailwind),
+ *  porque é o que os handlers abaixo alternam. Assim a regra
+ *  `[hidden] { display:none !important }` garante o comportamento. */
+function openChat(modo) {
+  /* `modo`: 'ia' (padrão) | 'recepcao'. Atenção: os listeners de `click`
+     passam o EVENTO como 1º argumento — por isso o filtro abaixo, senão o
+     modo viraria um MouseEvent. */
+  const humano = modo === 'recepcao';
+  state.chatMode = humano ? 'recepcao' : 'ia';
+  state.chatOpen = true;
+  el.chatPanel.hidden = false;
+  stopInertia(); // pausa o anti-travamento enquanto conversa
+
+  /* Identidade de quem responde — troca o cabeçalho inteiro. */
+  el.chatAvatar.textContent = humano ? '👩‍💼' : '🤖';
+  el.chatTitle.textContent = humano ? 'Recepção Saúde+' : 'Assistente Saúde+';
+  el.chatSub.textContent = humano
+    ? 'Atendente humano · Ana Paula'
+    : 'IA de apoio · responde na hora';
+
+  /* Faixa do protocolo: só quando conversa com a RECEPÇÃO. */
+  el.chatCtx.hidden = !humano;
+  if (humano) preencherCtxChat();
+
+  // Boas-vindas única por sessão (uma por modo).
+  if (humano && !state.recBooted) {
+    state.recBooted = true;
+    const t = tempoMedioAtendimento();
+    const primeiro = (el.fNome.value || '').trim().split(' ')[0];
+    const nome = primeiro && primeiro !== '—' ? ', ' + primeiro : '';
+    addBubble('bot',
+      `Olá${nome}! Aqui é a **Ana Paula**, da recepção. 👋\n\n` +
+      `Já estou com o seu **chamado ${state.ticket || '#—'}** — ${resumoPrioridade()}. ` +
+      `Tempo médio de atendimento: **${t.texto}**.\n\n` +
+      `Pode escrever por aqui mesmo. Como posso ajudar?`);
+  } else if (!humano && !state.chatBooted) {
+    state.chatBooted = true;
+    addBubble('bot',
+      'Olá! 👋 Sou a assistente da Clínica Saúde+.\n\n' +
+      'Posso ajudar com **plano de saúde**, **horário da consulta**, ' +
+      '**documentos** e o **caminho até a sala**. Como posso te ajudar?');
+  }
+  renderChips(); // sempre — os chips mudam de acordo com quem responde
+
+  /* PONTO DE INTEGRAÇÃO REAL — chat humano:
+     const res = await chatService.open(state.ticket || 'sem-ticket');
+     → WebSocket/Intercom/Zendesk do atendente, com o ticket acoplado à
+       conversa (é o que a faixa `chatCtx` mostra na tela). */
+  analyticsService.track('chat_opened', { screen: state.screen, modo: state.chatMode });
+  requestAnimationFrame(() => {
+    // Garante que a conversa abra no fim (o painel é alto; em telas curtas
+    // o primeiro scroll automático pode não pegar o final da lista).
+    el.chatMessages.scrollTop = el.chatMessages.scrollHeight;
+    el.chatInput.focus({ preventScroll: true });
+  });
+}
+
+/** Fecha o painel do chat e retoma o fluxo. */
+function closeChat() {
+  state.chatOpen = false;
+  el.chatPanel.hidden = true;
+  // Retoma inércia apenas se estiver numa tela do fluxo de check-in.
+  if (INERTIA_SCREENS.includes(state.screen)) startInertia();
+}
+
+// Gatilhos de abertura.
+el.btnOpenChat.addEventListener('click', () => openChat());        // 🤖 header → IA
+el.btnIaLink.addEventListener('click', () => openChat());           // Tela 1 → IA
+// Tela 4 diz "Abrir chat com a RECEPÇÃO" → abre a conversa HUMANA, com o
+// protocolo na tela. (Se fosse `openChat` puro, o evento seria o 1º arg.)
+el.btnChat.addEventListener('click', () => openChat('recepcao'));
+el.chatClose.addEventListener('click', closeChat);
+
+// Envio pelo formulário.
+el.chatForm.addEventListener('submit', (e) => {
+  e.preventDefault();
+  sendChat(el.chatInput.value);
+});
+
+// Esc fecha o chat (se aberto) — a11y.
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && state.chatOpen) closeChat();
+});
+
+/* --------------------------------------------------------------------------
+   9-B. TELA 4 — SUPORTE ACIONADO
+   --------------------------------------------------------------------------
+   OBS: o botão "Abrir chat" da Tela 4 já tem UM ÚNICO handler (openChat,
+   registrado na seção 9). Ele abre o assistente de IA e, se o paciente
+   pedir um humano, a IA exibe o CTA "Acionar a recepção agora" que chama
+   escalateFromChat() → queueService.
+
+   PONTO DE INTEGRAÇÃO REAL — chat humano (seam `chatService`):
+   Em produção, ao abrir o chat na Tela 4, injete também o canal humano:
+       const res = await chatService.open(state.ticket);
+       → montar <iframe> do widget (Intercom/Zendesk) ou WebSocket
+         autenticado pelo `ticket`, já com o contexto do paciente.
+   O assistente de IA permanece como 1º nível; o humano vira 2º nível.
+   -------------------------------------------------------------------------- */
+
+el.btnReiniciar.addEventListener('click', () => {
+  state.ticket = null;
+  limparGravidade();
+  resetScanUI();
+  goTo('inicio');
+});
+
+/** Atualiza os chips (chamado/prioridade/tipo/plano) na tela de sucesso. */
+const suporteObserver = new MutationObserver(() => {
+  if (screens.suporte.hidden) return;
+
+  const urgente = state.tipoAtendimento === 'pronto';
+  const g = GRAVIDADES[state.gravidade] || null;
+
+  if (state.ticket) {
+    el.ticketChip.textContent = `Chamado ${state.ticket} · ` +
+      (urgente ? (g ? g.ticket : 'Prioridade a definir') : 'Prioridade normal');
+  }
+  // data-prio dispara o CSS do chip (ver #ticketChipWrap no <style>):
+  //   consulta/pronto leve → normal (esmeralda) · moderada → média · crítica → alta
+  el.ticketChipWrap.dataset.prio = urgente ? (g ? g.css : 'media') : 'normal';
+
+  // Chip do tipo de atendimento escolhido na Tela 1 (com a gravidade, se houver).
+  el.tipoChip.hidden = false;
+  el.tipoChip.dataset.tipo = state.tipoAtendimento;
+  el.tipoChipIcon.textContent = urgente ? '🚑' : '🩺';
+  el.tipoChipText.textContent = urgente
+    ? (g ? `Pronto-socorro · gravidade ${g.rotulo.toLowerCase()}` : 'Pronto-socorro · triagem')
+    : 'Consulta médica';
+
+  // Título/legenda da Tela 4 também acompanham o modo de atendimento.
+  el.tituloSuporte.textContent = urgente
+    ? 'Encaminhado para a triagem'
+    : 'Solicitação enviada à recepção';
+  el.subSuporte.innerHTML = urgente
+    ? `Sua senha de triagem foi emitida — <strong>${g ? g.ticket : 'prioridade a definir'}</strong>.`
+      + '<span class="block text-slate-500">(ou abra o chat abaixo)</span>'
+    : 'Alguém virá te atender em instantes.'
+      + '<span class="block text-slate-500">(ou abra o chat abaixo)</span>';
+
+  updatePlanChip(); // reflete o plano escolhido (ou oculta se vazio)
+
+  // TEMPO MÉDIO DE ATENDIMENTO — depende da GRAVIDADE do caso escolhido
+  // (nunca fixo): consulta eletiva ~2 min · leve ~5 min · moderada ~3 min ·
+  // crítica imediata. O data-prio pinta o chip igual ao do chamado.
+  const tm = tempoMedioAtendimento();
+  el.timeChip.hidden = false;
+  el.timeChip.dataset.prio = tm.css;
+  el.timeChip.title = tm.nota;
+  el.timeChipText.textContent = `Tempo médio de atendimento: ${tm.texto}`;
+});
+suporteObserver.observe(screens.suporte, { attributes: true, attributeFilter: ['hidden'] });
+
+/* --------------------------------------------------------------------------
+   10. TOAST (feedback visual transitório)
+   -------------------------------------------------------------------------- */
+let toastTimer = null;
+function showToast(message, duration = 3000) {
+  clearTimeout(toastTimer);
+  el.toast.textContent = message;
+  el.toast.classList.remove('opacity-0', 'translate-y-4');
+  el.toast.classList.add('opacity-100', 'translate-y-0');
+
+  toastTimer = setTimeout(() => {
+    el.toast.classList.add('opacity-0', 'translate-y-4');
+    el.toast.classList.remove('opacity-100', 'translate-y-0');
+  }, duration);
+}
+
+/* --------------------------------------------------------------------------
+   11. BOOT
+   -------------------------------------------------------------------------- */
+(function init() {
+  goTo('inicio');                      // tela inicial
+  analyticsService.track('app_loaded', { ts: Date.now() });
+  console.info(
+    '%cFluxo Dual — Recepção Sem Fila%c\nProtótipo PoC · Timer de inércia: ' +
+    INERTIA_TIMEOUT_MS + 'ms\nSeams de integração: ocrService, queueService, chatService, analyticsService',
+    'color:#0F766E;font-weight:bold;font-size:14px', 'color:#64748B'
+  );
+})();
+</script>
+</body>
+</html>
